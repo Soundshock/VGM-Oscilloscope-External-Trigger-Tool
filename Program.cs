@@ -9,6 +9,9 @@ using System.Linq;
 // using System.CommandLine; // not available for dotnet core
 // using System.Data.Linq; // has a useful binary class but is only in dotnet framework 4.x
 
+// vvv note: to publish with dependencies - but it'll be like 30 megs
+// dotnet publish -r win-x64 -c Release /p:PublishSingleFile=true /p:PublishTrimmed=true
+
 // TODO
 // clean up
 // make better bitwise functions
@@ -38,7 +41,7 @@ namespace EXTT
 {
     
     public partial class Program {
-        static int VERSIONMAJOR = 0, VERSIONMINOR=1;
+        static int VERSIONMAJOR = 0, VERSIONMINOR=2;
         
         public delegate void WriteDelegate(string msg, params object[] args); // shortcut commands
         public static readonly WriteDelegate tb = Console.WriteLine; 
@@ -764,6 +767,7 @@ Example: invgm.VGM dt 0 altwave false fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force f
         //! find 3-byte KeyOn command -> search backwards to find other OPs (CLOSEST match or whatever's left in memory) 
         //! -> pick lowest mult ->  mute all other operators -> handle detune according to settings
         static void AutoTrigger(FMchannel FMx, Arguments FMargs, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata) {
+            // if (FMx.detunesetting <)
             int detunesetting = FMargs.detunesetting;
             bool altwaveform = FMargs.altwave;
             int forceop = FMargs.forceop;
@@ -1023,7 +1027,8 @@ Example: invgm.VGM dt 0 altwave false fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force f
                         } else if (detunesetting >= 8){ // take masked Operator set DT based on some algorithm (lowest, highest, 4231, 3142 etc)
                             int dtcopyidx = ReturnDesiredDTIDX(mults, detunesetting, FMx.operators); //* get the index of the DT we want
                             // int newdt = ReturnFirstByteAsInt(mults[dtcopyidx] ); // get the second byte as an int
-                            int newdt = First4BitToInt(mults[dtcopyidx] ); // get the second byte as an int (better function)
+                            // int newdt = First4BitToInt(mults[dtcopyidx] ); // get the second byte as an int (better function)
+                            byte newdt = First4Bit(mults[dtcopyidx] ); // get the second byte as an int (better function)
                             // tb("mults 0x" + cts(mults[dtcopyidx],16)+" newDT="+newdt);
                             data[mult_index[mask]] = ReplaceFirstHalfByte(data[mult_index[mask]], newdt); // replaces first byte of DT/ML with 0 (or 4 it's the same)
                             // Console.WriteLine(FMx.name+": Our New Carrier Is: OP#"+(mask+1)+" @ 0x"+cts(mult_index[mask],16) +
@@ -1037,7 +1042,7 @@ Example: invgm.VGM dt 0 altwave false fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force f
                             // Console.WriteLine(FMx.name+": detunesetting: "+Convert.ToString(data[mult_index[mask]-2],16)+" "+Convert.ToString(data[mult_index[mask]-1],16)+
                                 // " "+"(should be 5x "+Convert.ToString(DTML(FMx,mask+1),16)+")... "+Convert.ToString(data[mult_index[mask]],16)+" -> 0x");
                                                         
-                            data[mult_index[mask]] = ReplaceFirstHalfByte(data[mult_index[mask]], detunesetting); // replaces first byte of DT/ML with 0 (or 4 it's the same)
+                            data[mult_index[mask]] = ReplaceFirstHalfByte(data[mult_index[mask]], Convert.ToByte(detunesetting)); // replaces first byte of DT/ML with 0 (or 4 it's the same)
                             // Console.Write(Convert.ToString(data[mult_index[iii]],16));
                             // Console.WriteLine();
                         } 
@@ -1384,20 +1389,9 @@ Example: invgm.VGM dt 0 altwave false fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force f
             // System.Console.ReadKey();
         }
 
-        // todo vvv this is really old
-        static byte ReplaceFirstHalfByte(byte xa, int dt){  // for setting DT. in:byte, int DT value (0-7)
-            string s = dt.ToString();   // ...convert detune value to string here       
-            string temp;        // TODO make a better function for this. test fourToEightCoder
-            //* reconstitute half-byte
-            temp = Convert.ToString(xa,16);   // convert byte to string                    
-            if (temp.Length < 2) { temp = "0"+temp; } // if byte starts with a 0, a 0 will need to be added back
-            char[] temp2 = temp.ToCharArray();      // split byte in half using char                                    
-            temp = s + temp2[1];                    // DT + Freq Multiplier                     
-            byte b = Convert.ToByte(temp, 16);      // recombine into 8-bit value
 
-            // tb("ReplaceFirstHalfByte: converted 0x" + Convert.ToString(xa,16) +
-            // " -> 0x"+Convert.ToString(b,16)+" ");
-            return b;                           //* <- Actual modification is done here
+        static byte ReplaceFirstHalfByte(byte xa, byte dt){  // for setting DT. in:byte, int DT value (0-7)
+            return FourToEightCoder(dt, Second4Bit(xa)); // DT|ML
         }
 
 
