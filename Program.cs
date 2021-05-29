@@ -88,20 +88,23 @@ Supported chips are these Yamaha FM synths: OPN OPNA OPNB OPN2, OPM, OPL2
 Available options (4operator FM): DT(def 0), altwave(def true), ForceMult(def 99, disabled)
 Available options (2operator OPL2): altwave(def true), ForceMult(def 99, disabled)
 Advanced options: ForceOP(def 4) - Force output through a specific operator. 4-operator FMs only, doesn't work with altwave. Changing this is not recommended. 
-           (new!) Patch [PatchKey] - 4-op FMs only, applies DT and ForceMult on a patch-by-patch basis
-                  [PatchKey] syntax: (OP#1 mult)-(OP#2 mult)-(OP#3 mult)-(OP#4 mult) / (OP#1 DT)-(OP#2 DT)-(OP#3 DT)-(OP#4 DT)DT(desired DT)mult(desired Mult-optional)
-                  Operator Multiplier values dilineated by '-', '/' separator, Operator Detune values dilineated by '-', DT(or e), 
-                  Desired Detune or Detune algorithm, mult(or m) desired mult level (optional) 
-                  *Patch Key MUST be in quotes if there are blank spaces!*
-                        Example: patch '12-15-1-3 / 3-4-3-2dt3' - this would use detune level '3' for this harpsichord patch
-                        Example: patch '4-11-4-15 / 3-4-7-7dt5m1' - An inharmonic church bell patch is set to DT 5 and Mult 1 
-                        Example: p '4-11-4-15/3-4-7-7e5m1' - Alternate syntax version of the above example
+(new!) Patch [PatchKey] - 4-op FMs only, applies DT and ForceMult on a patch-by-patch basis
+            [PatchKey] syntax: (OP#1 mult)-(OP#2 mult)-(OP#3 mult)-(OP#4 mult) / (OP#1 DT)-(OP#2 DT)-(OP#3 DT)-(OP#4 DT)DT(desired DT)mult(desired Mult-optional)
+            Operator Multiplier values dilineated by '-', '/' separator, Operator Detune values dilineated by '-', DT(or e), 
+            Desired Detune or Detune algorithm, mult(or m) desired mult level (optional) 
+            *Patch Key MUST be in quotes if there are blank spaces!*
+                Example: patch '12-15-1-3 / 3-4-3-2dt3' - this would use detune level '3' for this harpsichord patch
+                Example: patch '4-11-4-15 / 3-4-7-7dt5m1' - An inharmonic church bell patch is set to DT 5 and Mult 1 
+                Example: p '4-11-4-15/3-4-7-7e5m1' - Alternate syntax version of the above example
 
-                    If this setting is in use, enables the 'Lost Patch Report' which will log all patch keys that aren't already specified
-                    so using p '0-0-0-0/0-0-0-0e0' can give you an initial readout of all the patch keys in a VGM!
-                    *At this time it is recommended to ONLY use Patch on a Global basis to prevent confusion*
+            If this setting is in use, enables the 'Lost Patch Report' which will log all patch keys that aren't already specified
+            so using p '0-0-0-0/0-0-0-0e0' can give you an initial readout of all the patch keys in a VGM!
+            *At this time it is recommended to ONLY use Patch on a Global basis to prevent confusion*
+Continued... (press any key)";
+                    tb(helptext);
+                    Console.ReadKey();
                         
-
+                helptext=@"
                         - - - SETTINGS FOR DETUNE (DT value) - - - 
   * 0 - No Detune (default)
    0-7 - force a detune setting. 7-6-5-0-1-2-3 in order corresponds to -3 to +3 (4, if chosen, is the same as 0)
@@ -135,54 +138,9 @@ Example: invgm.VGM dt 0 altwave false fm0 dt 2 fm3 dt 11 <- does the above but s
 Example: invgm.VGM dt 0 altwave false fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use multiplier 1
 ... or just drag & drop.";
                 tb(helptext);
-                // Console.ReadKey();
-                // Environment.Exit(0); // 0 is good?
-                // tb("");
-                // string test ="15-3-0-0 / 3-3-3-3_e9";
-                // string test2="15-3-0-0 / 3-3-3-3_e9m-1";
-
-
-                // // string[] out = test.Split
-                // string[] stringSeparators = new string[] {"/","_","e","dt","m","mult"};
-                // string[] argmults = test.Split(stringSeparators, StringSplitOptions.RemoveEmptyEntries);
-                // string s="";
-                // for (int i = 0; i < argmults.Length; i++){
-                //     s+=i+":"+argmults[i]+" ";
-                // }
-                // tb(s); s="";
-
-
-                // argmults = test2.Split(stringSeparators, StringSplitOptions.RemoveEmptyEntries);
-                // for (int i = 0; i < argmults.Length; i++){
-                //     s+=i+":"+argmults[i]+" ";
-                // }
-                // tb(s); s="";
-
-
-                // // pt 2 - subdivide
-                // stringSeparators = new string[] {"-"};
-                // // string tmp=argmults[0];
-                // string[] valuesMULT = argmults[0].Split(stringSeparators, StringSplitOptions.RemoveEmptyEntries);
-                // string[] valuesDT = argmults[1].Split(stringSeparators, StringSplitOptions.RemoveEmptyEntries);
-                // string[] valueDESIRED_DT = argmults[2].Split(stringSeparators, StringSplitOptions.RemoveEmptyEntries);
-                // string[] valueDESIRED_MULT = new string[]{"99"};
-                // if (argmults.Length > 3){
-                //     valueDESIRED_MULT = argmults[3].Split(stringSeparators, StringSplitOptions.RemoveEmptyEntries);
-                // }
-
-                // tb("...");
-                // PrintStringArray(valuesMULT);
-                // PrintStringArray(valuesDT);
-                // PrintStringArray(valueDESIRED_DT);
-                // PrintStringArray(valueDESIRED_MULT);
-
-                // FMpatchkey patchy = new FMpatchkey(valuesMULT[0],valuesMULT[1],valuesMULT[2],valuesMULT[3],
-                //                                    valuesDT[0],valuesDT[1],valuesDT[2],valuesDT[3],
-                //                                    valueDESIRED_DT[0], valueDESIRED_MULT[0]);
-
-                // tb(patchy.DebugPrint() );
-                // Environment.Exit(0);
-                // Console.ReadKey();
+                
+                Console.ReadKey();
+                Environment.Exit(0);
             }
 
 
