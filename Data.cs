@@ -7,8 +7,6 @@ namespace EXTT
 
         static void SetupData(int chiptype) {
             
-
-
             // setup: byte indexes, saved per channel
             // constructor includes this.chip for VGM chip number
             // (52/53 for OPN2, 54 for OPM, 55 for OPN, 56/57 for OPNA), 0x58/9 OPNB, 5A OPL2
@@ -119,7 +117,7 @@ namespace EXTT
                 FM6 = new FMchannel(4,0x54);  FM7 = new FMchannel(4,0x54);
                 FM0.name="FM0";FM1.name="FM1";FM2.name="FM2";FM3.name="FM3";FM4.name="FM4";FM5.name="FM5";FM6.name="FM6";FM7.name="FM7";
 
-                // todo looks like OPM has the ability to mute operators built into it's keyon commands? might cause problems
+                //* OPM & OPN keyons technically have flags to keyon each operator, but aside from ch3 mode they are rarely not simply F or 0
                 FM0.keyon = new byte[] {0x54, 0x08, 0x78}; FM1.keyon = new byte[] {0x54, 0x08, 0x79}; // these values bit shift a lot
                 FM2.keyon = new byte[] {0x54, 0x08, 0x7A}; FM3.keyon = new byte[] {0x54, 0x08, 0x7B}; // but we only need keyon so it's fine
                 FM4.keyon = new byte[] {0x54, 0x08, 0x7C}; FM5.keyon = new byte[] {0x54, 0x08, 0x7D}; 
@@ -230,8 +228,13 @@ namespace EXTT
                 FM7.op1_waveform=0xF1; FM7.op2_waveform=0xF4;
                 FM8.op1_waveform=0xF2; FM8.op2_waveform=0xF5;
 
-                // Algorithm / feedback (use 0x00)
-                // MDplayer says second 4-bit, but the values are strange. 
+                // Algorithm / feedback (use 0x00) vv via ymfm source vv
+                // C0-C8 x------- CHD output (to DO0 pin) [OPL3+ only]
+                // -x------ CHC output (to DO0 pin) [OPL3+ only]
+                // --x----- CHB output (mixed right, to DO2 pin) [OPL3+ only]
+                // ---x---- CHA output (mixed left, to DO2 pin) [OPL3+ only]
+                // ----xxx- Feedback level for operator 1 (0-7)
+                // -------x Operator connection algorithm
                 FM0.ALG = 0xC0; FM1.ALG = 0xC1; FM2.ALG = 0xC2;
                 FM3.ALG = 0xC3; FM4.ALG = 0xC4; FM5.ALG = 0xC5;
                 FM6.ALG = 0xC6; FM7.ALG = 0xC7; FM8.ALG = 0xC8;
