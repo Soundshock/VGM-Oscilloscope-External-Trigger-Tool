@@ -1,30 +1,28 @@
-
 namespace EXTT
-
 {
 
     public partial class Program {
 
-        static void SetupData(int chiptype) {
+        static void SetupData(byte chiptype) {
             
             // setup: byte indexes, saved per channel
             // constructor includes this.chip for VGM chip number
-            // (52/53 for OPN2, 54 for OPM, 55 for OPN, 56/57 for OPNA), 0x58/9 OPNB, 5A OPL2
-            // TODO 0x51 YM2413 OPLL, 0x5B YM3526 OPLL, 0x5C Y8950 OPLL, 0x5E/F YMF262 OPL3
+            // (52/53 for OPN2, 54 for OPM, 55 for OPN, 56/57 for OPNA), 0x58/9 OPNB, 5A OPL2, 5B OPL, 5C Y8950
+            // TODO YMF262 OPL3
             // FMchannel FM0,FM1,FM2,FM3,FM4,FM5,FM6,FM7,FM8;
             FM0 = new FMchannel(4,0x55); FM1 = new FMchannel(4,0x55); FM2 = new FMchannel(4,0x55); 
             FM3 = new FMchannel(4,0x55); FM4 = new FMchannel(4,0x55); FM5 = new FMchannel(4,0x55); 
             FM6 = new FMchannel(4,0x55); FM7 = new FMchannel(4,0x55); FM8 = new FMchannel(2,0x55);
 
 
-            if (chiptype==55){          //* OPN
+            if (chiptype==0x55){          //* OPN
                 FM0 = new FMchannel(4,0x55); FM1 = new FMchannel(4,0x55); FM2 = new FMchannel(4,0x55); 
 
                 FM0.keyon = new byte[] {0x55, 0x28, 0xF0}; // keyon commands.
                 FM1.keyon = new byte[] {0x55, 0x28, 0xF1}; //* These will be scanned as the starting point for patch searching
                 FM2.keyon = new byte[] {0x55, 0x28, 0xF2};
 
-            } else if (chiptype==56){   //* OPNA
+            } else if (chiptype==0x56){   //* OPNA
                 FM0 = new FMchannel(4,0x56);  FM1 = new FMchannel(4,0x56);  FM2 = new FMchannel(4,0x56);
                 FM3 = new FMchannel(4,0x57);  FM4 = new FMchannel(4,0x57);  FM5 = new FMchannel(4,0x57);
 
@@ -34,7 +32,7 @@ namespace EXTT
                 FM3.keyon = new byte[] {0x56, 0x28, 0xF4}; // not 57 btw
                 FM4.keyon = new byte[] {0x56, 0x28, 0xF5};
                 FM5.keyon = new byte[] {0x56, 0x28, 0xF6};
-            } else if (chiptype==58){   //* OPNB (specifically YM2610B with 6 channels. this might break with 4-channel FMs)
+            } else if (chiptype==0x58){   //* OPNB (specifically YM2610B with 6 channels. this might break with 4-channel FMs)
                 FM0 = new FMchannel(4,0x58);  FM1 = new FMchannel(4,0x58);  FM2 = new FMchannel(4,0x58);
                 FM3 = new FMchannel(4,0x59);  FM4 = new FMchannel(4,0x59);  FM5 = new FMchannel(4,0x59);
 
@@ -44,7 +42,7 @@ namespace EXTT
                 FM3.keyon = new byte[] {0x58, 0x28, 0xF4}; // not 57 btw
                 FM4.keyon = new byte[] {0x58, 0x28, 0xF5};
                 FM5.keyon = new byte[] {0x58, 0x28, 0xF6};
-            } else if (chiptype==52){   //* OPN2
+            } else if (chiptype==0x52){   //* OPN2
                 FM0 = new FMchannel(4,0x52);  FM1 = new FMchannel(4,0x52);  FM2 = new FMchannel(4,0x52);
                 FM3 = new FMchannel(4,0x53);  FM4 = new FMchannel(4,0x53);  FM5 = new FMchannel(4,0x53);
 
@@ -55,7 +53,7 @@ namespace EXTT
                 FM4.keyon = new byte[] {0x52, 0x28, 0xF5};
                 FM5.keyon = new byte[] {0x52, 0x28, 0xF6};
             }
-            if (chiptype==52 || chiptype==55 || chiptype==56 || chiptype==58) { //* OPN2/OPN/OPNA/OPNB(?) ch#1 - ch#3
+            if (chiptype==0x52 || chiptype==0x55 || chiptype==0x56 || chiptype==0x58) { //* OPN2/OPN/OPNA/OPNB(?) ch#1 - ch#3
                 FM0.name="FM0"; FM1.name="FM1"; FM2.name="FM2"; 
 
                 FM0.op1_TL = 0x40; FM0.op2_TL = 0x48; FM0.op3_TL = 0x44; FM0.op4_TL = 0x4C;
@@ -85,7 +83,7 @@ namespace EXTT
                 FM0.ALG = 0xB0; FM1.ALG = 0xB1; FM2.ALG = 0xB2;    // Alg shares a bit with feedback (feedback\ALG)
 
             }
-            if (chiptype==52 || chiptype==56 || chiptype==58){  //* 6-ch OPNs, and also OPNB
+            if (chiptype==0x52 || chiptype==0x56 || chiptype==0x58){  //* 6-ch OPNs, and also OPNB
                 FM3.name="FM3"; FM4.name="FM4"; FM5.name="FM5"; // used for debugging
                 FM3.op1_TL = 0x40; FM3.op2_TL = 0x48; FM3.op3_TL = 0x44; FM3.op4_TL = 0x4C; // chip=57 (opna) or 53 (opn2)
                 FM4.op1_TL = 0x41; FM4.op2_TL = 0x49; FM4.op3_TL = 0x45; FM4.op4_TL = 0x4D; // chip=57 (opna) or 53 (opn2)
@@ -111,7 +109,7 @@ namespace EXTT
 
 
             }
-            if (chiptype==54) { // 8-voice OPM YM2151
+            if (chiptype==0x54) { // 8-voice OPM YM2151
                 FM0 = new FMchannel(4,0x54);  FM1 = new FMchannel(4,0x54);  FM2 = new FMchannel(4,0x54);
                 FM3 = new FMchannel(4,0x54);  FM4 = new FMchannel(4,0x54);  FM5 = new FMchannel(4,0x54);
                 FM6 = new FMchannel(4,0x54);  FM7 = new FMchannel(4,0x54);
@@ -186,16 +184,16 @@ namespace EXTT
                 FM0.ALG=0x20; FM1.ALG=0x21; FM2.ALG=0x22; FM3.ALG=0x23; FM4.ALG=0x24; FM5.ALG=0x25; FM6.ALG=0x26; FM7.ALG=0x27; // ALG/FEEDBACK
 
             }
-            if (chiptype==510) { // 5A - OPL2
-                FM0 = new FMchannel(2,0x5A);  FM1 = new FMchannel(2,0x5A);  FM2 = new FMchannel(2,0x5A);
-                FM3 = new FMchannel(2,0x5A);  FM4 = new FMchannel(2,0x5A);  FM5 = new FMchannel(2,0x5A);
-                FM6 = new FMchannel(2,0x5A);  FM7 = new FMchannel(2,0x5A);  FM8 = new FMchannel(2,0x5A);
+            if (chiptype>=0x5A) { // 5A - OPL2 5B - OPL 5C - Y8950 (MSX AUDIO)
+                FM0 = new FMchannel(2,chiptype);  FM1 = new FMchannel(2,chiptype);  FM2 = new FMchannel(2,chiptype);
+                FM3 = new FMchannel(2,chiptype);  FM4 = new FMchannel(2,chiptype);  FM5 = new FMchannel(2,chiptype);
+                FM6 = new FMchannel(2,chiptype);  FM7 = new FMchannel(2,chiptype);  FM8 = new FMchannel(2,chiptype);
                 FM0.name="FM0";FM1.name="FM1";FM2.name="FM2";FM3.name="FM3";FM4.name="FM4";FM5.name="FM5";FM6.name="FM6";FM7.name="FM7";FM8.name="FM8"; 
 
                 // opl keyon works a bit differently. FM0 5A B0 xy    x  0|1=keyoff rest keyon?  >0x20 on, <0x20 off?
-                FM0.keyon = new byte[] {0x5A, 0xB0}; FM1.keyon = new byte[] {0x5A, 0xB1}; FM2.keyon = new byte[] {0x5A, 0xB2}; 
-                FM3.keyon = new byte[] {0x5A, 0xB3}; FM4.keyon = new byte[] {0x5A, 0xB4}; FM5.keyon = new byte[] {0x5A, 0xB5}; 
-                FM6.keyon = new byte[] {0x5A, 0xB6}; FM7.keyon = new byte[] {0x5A, 0xB7}; FM8.keyon = new byte[] {0x5A, 0xB7}; 
+                FM0.keyon = new byte[] {chiptype, 0xB0}; FM1.keyon = new byte[] {chiptype, 0xB1}; FM2.keyon = new byte[] {chiptype, 0xB2}; 
+                FM3.keyon = new byte[] {chiptype, 0xB3}; FM4.keyon = new byte[] {chiptype, 0xB4}; FM5.keyon = new byte[] {chiptype, 0xB5}; 
+                FM6.keyon = new byte[] {chiptype, 0xB6}; FM7.keyon = new byte[] {chiptype, 0xB7}; FM8.keyon = new byte[] {chiptype, 0xB7}; 
                 // tl  - first two bits are key scale, 0,1,2= 00, 01, 10. Rest is TL, a 6-bit value of 0-63 (3F = muted)
                 FM0.op1_TL=0x40; FM0.op2_TL=0x43;
                 FM1.op1_TL=0x41; FM1.op2_TL=0x44;

@@ -88,7 +88,7 @@ namespace EXTT
         static Arguments FM4Args= new Arguments(99,99,"FM4"); static Arguments FM5Args= new Arguments(99,99,"FM5");
         static Arguments FM6Args= new Arguments(99,99,"FM6"); static Arguments FM7Args= new Arguments(99,99,"FM7");
         static Arguments FM8Args= new Arguments(99,99,"FM8"); 
-        static int chiptype=0; // 0 = auto
+        static byte chiptype=0;
 
         static Dictionary<string, Arguments> GetChannel = new Dictionary<string, Arguments>(); // ex. key/pair: "FM0" FM0channel
         static FMchannel FM0 = new FMchannel(); static FMchannel FM1 = new FMchannel(); static FMchannel FM2 = new FMchannel();
@@ -161,7 +161,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
                 Environment.Exit(0);
             }
             if (!File.Exists(args[args.Length-1]) ) {
-                 tb("No file found @" +args[args.Length]); Console.ReadKey(); 
+                 tb("Error: No such file exists "+args[args.Length-1]+" "); Console.ReadKey(); 
                  Environment.Exit(1);
             }
             byte[] data;
@@ -179,21 +179,21 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
             if (Get32BitInt(data,0x10) > 0) {
                 tb("Chip Detection: 0x10 "+Get32BitInt(data,0x10)+" YM2413 clock rate found but chip not supported!");
             } else if (Get32BitInt(data,0x30) > 0) {
-                chiptype=54; tb("Chip Detection: 0x30 clockrate: "+Get32BitInt(data,0x30)+" YM2151 OPM found");
+                chiptype=0x54; tb("Chip Detection: 0x30 clockrate: "+Get32BitInt(data,0x30)+" YM2151 OPM found");
             } else if (Get32BitInt(data,0x44) > 0){
-                chiptype=55; tb("Chip Detection: 0x44 clockrate: "+Get32BitInt(data,0x44)+" YM2203 OPN found"); 
+                chiptype=0x55; tb("Chip Detection: 0x44 clockrate: "+Get32BitInt(data,0x44)+" YM2203 OPN found"); 
             }  else if (Get32BitInt(data,0x48) > 0){
-                chiptype=56; tb("Chip Detection: 0x48 clockrate: "+Get32BitInt(data,0x48)+" YM2608 OPNA found"); 
+                chiptype=0x56; tb("Chip Detection: 0x48 clockrate: "+Get32BitInt(data,0x48)+" YM2608 OPNA found"); 
             }   else if (Get32BitInt(data,0x4C) > 0){
-                chiptype=58; tb("Chip Detection: 0x4C clockrate: "+Get32BitInt(data,0x4C)+" YM2610 OPNB found"); 
+                chiptype=0x58; tb("Chip Detection: 0x4C clockrate: "+Get32BitInt(data,0x4C)+" YM2610 OPNB found"); 
             }  else if (Get32BitInt(data,0x50) > 0){
-                chiptype=510; tb("Chip Detection: 0x50 clockrate: "+Get32BitInt(data,0x50)+" YM3812 OPL2 found"); 
+                chiptype=0x5A; tb("Chip Detection: 0x50 clockrate: "+Get32BitInt(data,0x50)+" YM3812 OPL2 found"); 
             } else if (Get32BitInt(data,0x54) > 0){
-                chiptype=510; tb("Chip Detection: 0x54 clockrate: "+Get32BitInt(data,0x54)+" YM3526 OPL found"); 
+                chiptype=0x5b; tb("Chip Detection: 0x54 clockrate: "+Get32BitInt(data,0x54)+" YM3526 OPL found"); 
             } else if (Get32BitInt(data,0x58) > 0){
-                chiptype=510; tb("Chip Detection: 0x58 clockrate: "+Get32BitInt(data,0x58)+" MSX-AUDIO Y8950 (OPL) found"); 
+                chiptype=0x5c; tb("Chip Detection: 0x58 clockrate: "+Get32BitInt(data,0x58)+" MSX-AUDIO Y8950 (OPL) found"); 
             } else if (Get32BitInt(data,0x2C) > 0) {
-                chiptype=52; tb("Chip Detection: 0x2C clockrate: "+Get32BitInt(data,0x2C)+" YM2612 OPN2 found"); // check OPN2 last, as OPN2 DAC tends to be repurposed 
+                chiptype=0x52; tb("Chip Detection: 0x2C clockrate: "+Get32BitInt(data,0x2C)+" YM2612 OPN2 found"); // check OPN2 last, as OPN2 DAC tends to be repurposed 
             }  
             
             SetupData(chiptype);  //* INITIAL COMMAND SETUP (Data.cs)
@@ -237,16 +237,16 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
             AutoTrigger(FM0, FM0Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
             AutoTrigger(FM1, FM1Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
             AutoTrigger(FM2, FM2Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-            if (chiptype==52 || chiptype==54 || chiptype==56 || chiptype==58 || chiptype==510){  // 6 voices - OPN2 / OPM / OPNA / OPL2    
+            if (chiptype==0x52 || chiptype==0x54 || chiptype==0x56 || chiptype==0x58 || chiptype>=0x5A){  // 6 voices - OPN2 / OPM / OPNA / OPL
                 AutoTrigger(FM3, FM3Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
                 AutoTrigger(FM4, FM4Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
                 AutoTrigger(FM5, FM5Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
             }
-            if (chiptype==54 || chiptype==510){     // 8 voices - OPM / OPL2
+            if (chiptype==0x54 || chiptype>=0x5A){     // 8 voices - OPM / OPL
                 AutoTrigger(FM6, FM6Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
                 AutoTrigger(FM7, FM7Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
             }
-            if (chiptype==510){                     // 9 voices - OPL2
+            if (chiptype>=0x5A){                     // 9 voices - OPL
                 AutoTrigger(FM8, FM8Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
             }
 
@@ -311,6 +311,8 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
 
         //* pt 1/5. - go through byte-by-byte, flag bytes that are safe to edit (v04 also wait commands)
         static bool[] ExamineVGMData(byte[] data, byte FMchip, int start, int end, ref bool[] WaitFlags) {
+            // tb("chiptype=0x"+Convert.ToString(FMchip,16)+" operators="+FM0.operators +" startdata="+Convert.ToString(start,16)+" enddata="+Convert.ToString(end,16)+" ="+Convert.ToString(end-start,16));
+            // Console.ReadKey();
             string detectedchipcodes="";
             bool[] byteflag = new bool[end];
             bool toif = false; int c=0;
@@ -320,7 +322,6 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
             for (int i = 0; i < chips.Length; i++) {chips[i]=0;};
 
             for (int i = start; i < end; i++){
-                // if (i==0x2EBC) {tb("0x2EBC entering loop :"+data[i]);Console.ReadKey();}
                 switch (data[i]){
                     //* skip (and log) additional chips
                     case 0x4F: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // two-byte GameGear command (these show up on Genesis)
@@ -343,9 +344,12 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
                     case 0x62: WaitFlags[i]=true; break;
                     case 0x63: WaitFlags[i]=true; break;
                     // case 0x66: i=end; tb("end reached @ 0x"+i); break; // end of sound data
-                    case 0x66: i=end; break; // end of sound data
+                    case 0x66: i=end; tb("ExamineVGMdata: end reached @ 0x"+Convert.ToString(i,16) ); break; // end of sound data
                     case 0x67: // data block: 0x67 0x66 tt ss ss ss ss (data)
-                        i+=2; i+=Get32BitInt(data,i+1); break;  // maybe?
+                        int tmp=Get32BitInt(data,i+3);
+                        // tb("ExamineVGMdata: 0x"+Convert.ToString(i,16)+": data block size="+Convert.ToString(tmp,16)+" skipping to 0x"+Convert.ToString(i+tmp,16));
+                        i+=Get32BitInt(data,i+3); i+=6;
+                        break;
                     case byte n when (n >= 0x70 && n <= 0x7F): WaitFlags[i]=true; break; // more waits. oh neat c# can do this
                     case byte n when (n >= 0x80 && n <= 0x8F): WaitFlags[i]=true; break; // OPN2 sample write & wait
                     case 0xE0: i+=4; break; // OPN2 PCM pointer, followed by 32-bit value 
@@ -778,7 +782,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
         public struct FMchannel // Channel specific register reference, at least the relevant ones. set up in Data.cs
         {   // todo this should be replaced with a whole register map, set up in data.cs and operating as FMregisters
             public string name; // debug
-            public byte chip; // VGM chip code: 52/53 for opn2, 54 OPM, 55 OPN, 56/57 for OPNA, 510 OPL2
+            public byte chip; // VGM chip code: 52/53 for opn2, 54 OPM, 55 OPN, 56/57 for OPNA, 90 OPL2 91 OPL 92 Y8950
             public byte op1_TL, op2_TL, op3_TL, op4_TL;
             public byte op1_DTML, op2_DTML, op3_DTML, op4_DTML;
             public byte op1_waveform, op2_waveform;
@@ -890,7 +894,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
 
                 this.LABEL_REG.Add(alg,fMchannel.ALG);
 
-                if (operators==2) {
+                if (operators==2 && chiptype==0x5A || chiptype==0x5E) { // search for wave on OPL2 OPL3 only
                     this.LABEL_REG.Add("WAVEFORM1", fMchannel.op1_waveform); 
                     this.LABEL_REG.Add("WAVEFORM2", fMchannel.op2_waveform);
                 }
@@ -968,8 +972,13 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
                 // int[] current_values; 
                 var datavalues = new Dictionary<string,int>();
                 if (operators==2) { // OPL2 note - AM|PM|KSR|EG / MULT - No Detune with OPL2. Looks like 4 bit 0-F to me, but I've heard it skips some values (OPLL maybe?)
-                    datavalues.Add(wave1,Second4BitToInt(LABEL_VAL("WAVEFORM1") ) ); // last 2 bits OPL2, last 3 bits OPL3. Nonexistent OPL1
-                    datavalues.Add(wave2,Second4BitToInt(LABEL_VAL("WAVEFORM2") ) );
+                    if (chiptype==0x5A || chiptype==0x5E) {
+                        datavalues.Add(wave1,Second4BitToInt(LABEL_VAL("WAVEFORM1") ) ); // last 2 bits OPL2, last 3 bits OPL3. Nonexistent OPL1
+                        datavalues.Add(wave2,Second4BitToInt(LABEL_VAL("WAVEFORM2") ) );
+                    } else {
+                        datavalues.Add(wave1, 0); // wave register is very unlikely to be in data, but patchkey syntax will remain the same
+                        datavalues.Add(wave2, 0);
+                    }
                     datavalues.Add(alg, Convert.ToInt32(LastBit(LABEL_VAL(alg) ) ) );
                     datavalues.Add(vibrato1,Convert.ToInt32(SecondBit(LABEL_VAL("DTML1") ) ) );
                     datavalues.Add(vibrato2,Convert.ToInt32(SecondBit(LABEL_VAL("DTML2") ) ) );
@@ -1096,6 +1105,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
             byte outvolume = 0x0A; //hardcode carrier out level
 
             if (FMin.operators==2){ // *smash feedback & algorithm (alg 4?)
+                FindAndkillFirstBit_2Reg(FMin.chip, FMin.op1_DTML, FMin.op2_DTML, data, ByteFlags, StartVGMdata, EndVGMdata); // kill "AM" vibrato
                 FindAndReplaceSecond4Bit(FMin.chip, FMin.ALG, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata); // "connect" / feedback. -- ?
                 // FindAndReplaceByte(FMin.chip, FMin.ALG, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata); // OPL2 FM 1 / Feedback 0   -- either should be fine?
             } else if (FMin.chip==0x54) {  
@@ -1340,6 +1350,19 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
                 }
             }
             // tb(s); Console.ReadKey();
+        }
+
+        static void FindAndkillFirstBit_2Reg(byte port, byte reg1, byte reg2, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){
+                for (int i = startVGMdata; i < endVGMdata; i++){ 
+                    if (byteflag[i] && data[i]==port) {
+                        if (data[i+1]==reg1 || data[i+1]==reg2) { // 2 possible registers
+                            // byte b = (byte)(data[i+2] << 1); // erase first bit
+                            // b = (byte)(data[i+2] >> 1);     // shuffle data back into position
+                            // data[i+2] = b;
+                            data[i+2] = (byte)(data[i+2] & 0b01111111);
+                        }
+                    }
+                }
         }
         static void FindAndkillFirstTwoBits(byte xa, byte xb, byte byt, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){
             //string s="FindAndReplaceFirstTwoBits:0b"+GetBinary(byt)+"\n"; // debug / printing
