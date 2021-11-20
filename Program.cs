@@ -32,6 +32,7 @@ OPL2 patchkeys
 		
     todo
     test more
+    OPL AM-vibrato still happening, disable it
     update help
     monofy? OPM panning is part of the feedback register, not the same as OPNA
     auto split?
@@ -1036,7 +1037,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
                     } else {
                         datavalues["OUTVIBRATO"] = datavalues[vibrato2];
                     }
-                    data[LABEL_IDX("DTML2")+2] = FourToEightCoder(First4Bit(data[LABEL_IDX("DTML4")+2]), Convert.ToByte(OutMult) );                //* WRITE MULT
+                    data[LABEL_IDX("DTML2")+2] = FourToEightCoder(First4Bit(data[LABEL_IDX("DTML2")+2]), Convert.ToByte(OutMult) );                //* WRITE MULT
                     data[LABEL_IDX("TL2")+2] = 12; // set volume OPL2 - first two bits are key scale, 0,1,2= 00, 01, 10. Rest is TL, a 6-bit value of 0-63 (3F = muted)
                 } else {
                     data[LABEL_IDX("DTML4")+2] = FourToEightCoder(First4Bit(data[LABEL_IDX("DTML4")+2]), Convert.ToByte(OutMult) );                //* WRITE MULT
@@ -1149,10 +1150,10 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
 
 
 
-            tb(showprogress);
-            if (FMargs.LookForPatchKeys){
-            LostPatchLog+=FMargs.ReturnLostPatches(FM0.operators)+"\n";
-            }
+            // tb(showprogress);
+            // if (FMargs.LookForPatchKeys){
+            // LostPatchLog+=FMargs.ReturnLostPatches(FM0.operators)+"\n";
+            // }
 
         }
 
