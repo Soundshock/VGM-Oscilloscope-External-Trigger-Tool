@@ -13,32 +13,30 @@ using System.Linq;
 // dotnet publish -r win-x64 -c Release /p:PublishSingleFile=true /p:PublishTrimmed=true
 
 
-// v04 - major refactor, ALTWAVE removed, some DT algs removed, wip
+/* v04 - major refactor
+    Altwave removed, some DT algs removed
+    Detune is set to 10, which is now AVERAGE OF ALL DETUNE VALUES
+    MULTIPLIER is set AUTOMATICALLY (finally)
+     ^ with these two, drag & drop tracking results should be much, much better!
+    New chips supported: OPL (YM3526) & Y8950 (MSX-AUDIO, basically OPL + ADPCM-B)
+        todo OPL3 still to come
+    PatchKey system now supports 2-Operator FMs
+        The syntax is different from 4-op, see -help
+    Lost Patch Report now displays all the time and has some new features such as timecodes
+        * input argument P P for clean patch report for copy/pasting into bat file
+    Bugfixes
+*/
 
-
-/* v04 wip notes
+/* v04 Notes / Limitations
 ExamineVGMData (function that preemptively flags FM commands and Wait commands) is a relic from when this was strictly a find-replace program
-but I'll still keep it because it makes other functions much simpler to understand
-* input argument P P for clean patch report for copy/pasting into bat file
+but I'll still keep it because it makes other functions much simpler to read
 
-OPL2 patchkeys
-	Patchkey refactor - working
-		Show more in lost patch report, such as waveforms.
-		Major thing you want to control is vibrato, in cases where alg is not connected
-		
-		******* Lost Patch Report *******
-		Wave1 - Wave2 - Alg / Mult1 - Mult2 mMultDesired vVibrato?
-		Sine-Sine-Connected-V1-V2 / 2-2m2v1
-		
-    todo
-    test more
-    OPL AM-vibrato still happening, disable it
-    update help
-    monofy? OPM panning is part of the feedback register, not the same as OPNA
-    auto split?
-	? - could OPM DT2 be handled similarly?
-	? OPL3?
-	?	For OPL3 it would be a good time to refactor DATA.CS? idk	
+todo
+monofy? OPM panning is part of the feedback register, not the same as OPNA
+auto split?
+? - could OPM DT2 be handled similarly to alg?
+? OPL3?
+?	For OPL3 it would be a good time to refactor DATA.CS? idk	
 Pin*Bot Mode
 	if a song uses DT or ML sweeps, extt has to add values. No way around it.
 	Split data into 10ms chunks then process through them
@@ -112,50 +110,76 @@ namespace EXTT
             tb("VGM External Trigger Tool Ver "+VERSIONMAJOR+"."+VERSIONMINOR+"\nA VGM hacking tool for creating external trigger waveforms for oscilloscopes\nUsage: EXE [options] Infile.VGM");
             if (args.Length < 1 || "-H"==args[0] || "-h"==args[0] || "h"==args[0] || "/?"==args[0] || "-help"==args[0] ) { 
                 string helptext=@"Help (-h or no arguments)
-Supported chips are these Yamaha FM synths: OPM, OPN, OPNA, OPNB, OPN2, OPL, OPL2 
-Available options (4operator FM): DT(def 0), ForceMult(def disabled)
-Available options (2operator OPL2): ForceMult(def disabled)
-Advanced options: Patch [PatchKey] - applies settings on a patch-by-patch basis
-                  [PatchKey] syntax: (OP#1 mult)-(OP#2 mult)-(OP#3 mult)-(OP#4 mult) / (OP#1 DT)-(OP#2 DT)-(OP#3 DT)-(OP#4 DT)DT(desired DT)mult(desired Mult-optional)
-                  Operator Multiplier values dilineated by '-', '/' separator, Operator Detune values dilineated by '-', DT(or e), 
-                  Desired Detune or Detune algorithm, mult(or m) desired mult level (optional, mult will otherwise be chosen automatically) 
-                  *Patch Key MUST be in quotes if there are blank spaces!*
-                        Example: patch '12-15-1-3 / 3-4-3-2dt3' - this would use detune level '3' for this harpsichord patch
-                        Example: patch '4-11-4-15 / 3-4-7-7dt5m1' - An inharmonic church bell patch is set to DT 5 and Mult 1 
-                        Example: p '4-11-4-15/3-4-7-7e5m1' - Alternate syntax version of the above example
+Supported chips are these Yamaha FM synths: OPM, OPN, OPNA, OPNB, OPN2, OPL, Y8950, OPL2 
+Available options (4operator FM): DT(def 10), Mult(DEF unspecified, specifying mult is unneccessary)
+Available options (2operator OPL2): Mult(unspecified / automatic, again this is not recommended)
+Advanced options: Patch ""PatchKey Commands"" 
 
-                    If this setting is in use, enables the 'Lost Patch Report' which will log all patch keys that aren't already specified
-                    so using p '0-0-0-0/0-0-0-0e0' can give you an initial readout of all the patch keys in a VGM!
-                    *At this time it is recommended to ONLY use Patch on a Global basis to prevent confusion*
-                        
+                        *************** PatchKey Description ***************
+            applies settings on a instrument-by-instrument basis, by providing some identifying info 
+            then the desired settings. This can be used to fine-tune the tracking of the output, 
+            particularly on very detuned FM instruments
+            This program will print a list of all the identified patches after running in the patchkey 
+            format. 
+            If the argument ""P P"" is used, the patch report will use an even simpler syntax for 
+            quicker copy-pasting into .bat files
 
+                        *************** PatchKey Syntax ***************
+            4-Operator FM Synth PatchKey Syntax: 
+           ""patch""           patch info                           commands
+            v      v                                v v                                   v 
+            PATCH ""M1-M2-M3-M4 / DT1-DT2-DT3-DT4 ALG DT(desired) MULT(desired, optional)""
+
+            2-Operator FM Synth PatchKey Syntax:
+           ""patch""             patch info                        
+            v      v                                           v 
+            PATCH ""WAVEFORM1-WAVEFORM1-ALG-VIBRATO1-VIBRATO2 / 
+            MULT1-MULT2 VIBRATO(desired) MULT(desired, optional)""
+                        ^             commands                  ^
+            4-OP Example: patch ""12-15-1-3 / 3-4-3-2 alg4 dt3"" 
+                if a 4-op patch has mult values of 12-15-1-3 and dt values of 3-4-3-2, use detune 3
+            4-OP Example: p ""12-15-1-3 / 3-4-3-2 a4 e3""
+                a simplified version of the example above
+            2-OP Example: patch ""0-0-0-1-0 / 1-2 v1""
+                a patch with wave1=0, wave2=0, ALG 0 (not connected), vib1=1 vib=0 is set to vib=1
+
+            *NOTE: Patch Key MUST be in quotes if there are blank spaces!*
+
+        Press any key to continue...";
+                tb(helptext);
+                Console.ReadKey();                
+                helptext=@"
                         - - - SETTINGS FOR DETUNE (DT value) - - - 
-  * 0 - No Detune
-   0-7 - force a detune setting. 7-6-5-0-1-2-3 in order corresponds to -3 to +3 (4, if chosen, is the same as 0)
-  * 8  - Use the DT of the lowest frequency operator bias 1>2>3>4 - If there are matches, use the DT of the earlier op (OP#1 > OP#2 > OP#3 > OP#4)
-    9  - Use the DT of the lowest frequency operator bias 4>3>2>1 - If there are matches, use the DT of the later op (OP#4 > OP#3 > OP#2 > OP#1)
+  * 0 - No Detune (good starting point for PatchKey system)
+   0-7 - force a detune setting. 7-6-5-0-1-2-3 in order corresponds to -3 to +3 (4 is the same as 0)
+  * 8  - Use the DT of the lowest frequency operator bias 1>2>3>4 - If there are matches, use the DT of the 
+         earlier op (OP#1 > OP#2 > OP#3 > OP#4)
+    9  - Use the DT of the lowest frequency operator bias 4>3>2>1 - If there are matches, use the DT of the 
+         later op (OP#4 > OP#3 > OP#2 > OP#1)
   * 10 - Use an average of all Detune values (*** NEW DEFAULT ***)
-  * 11 - Use the DT of the MOST detuned operator bias 1>2>3>4 - If there are matches, use numerically *lowest* op (-3 and +3 match for these)
-    12 - Use the DT of the MOST detuned operator bias 4>3>2>1 - If there are matches, use numerically *highest* op
-    13 - Use the DT of the LEAST detuned operator bias 1>2>3>4 - If there are matches, use numerically *lowest*  op
-    14 - Use the DT of the LEAST detuned operator bias 4>3>2>1 - If there are matches, use numerically *highest* op
+  * 11 - Use the DT of the MOST detuned operator bias 1>2>3>4 - If there are matches, use earliest op
+    12 - Use the DT of the MOST detuned operator bias 4>3>2>1 - If there are matches, use later op
+    13 - Use the DT of the LEAST detuned operator bias 1>2>3>4 - If there are matches, use earliest op
+    14 - Use the DT of the LEAST detuned operator bias 4>3>2>1 - If there are matches, use later op
     ...- any other value will be equivalent to 0
     21 - always use OP#1's associated DT
     22 - always use OP#2's associated DT
     23 - always use OP#3's associated DT
     24 - always use OP#4's associated DT
     * = recommended
-    none of this applicable for OPL2, which has no operator detune settings.
-                        - - - ADD MULT / FORCE MULT (forcemult/mult/addmult, auto by default)
-    Multiplier is set automatically now (highest common denominator of all multipliers) but this can be useful to set
-    higher if the patch length is very long, such as with some percussion patches with inharmonic multipliers
+    none of this applicable for 2-Operator FM synths, which have no operator detune settings.
+        - - - ADD MULT / FORCE MULT (forcemult/mult/addmult, unspecified by default) - - - 
+    If unspecified, Multiplier is set automatically (highest common denominator of all multipliers) 
+    This provides the best possible tracking. However, it may be useful to set higher multplier if the 
+    waveform's length is very long, such as with some percussion patches with inharmonic multipliers. 
     Possible values: 0-15
 
 Options may be set globally and/or per-channel, by preceding an option with a 'FM#' command (zero-bound)
 Per-channel commands will always take precedence over global commands.
-Example: invgm.VGM dt 0                               <- sets DT to 0 globally for all channels 
-Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11            <- does the above but sets dt to '0' for FM0, and '11' for FM3
-Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use multiplier 1
+To prevent confusion, it's recommended to only use PatchKey globally.
+Example: invgm.VGM dt 0 FILE.VGM                    <- sets DT to 0 globally for all channels 
+Example: invgm.VGM dt 0 fm0 dt 2 FILE.VGM           <- does the above but sets dt to '0' for FM0
+Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel fm3 to detune 11
 ... or just drag & drop.";
                 tb(helptext);
                 Environment.Exit(0);
@@ -269,16 +293,17 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
             tb("\n"+LostPatchLog);
 
             if (FM0.operators==2) {
+                string wv="0="+ReturnWaveTypeString(0)+" 1="+ReturnWaveTypeString(1)+" 2="+ReturnWaveTypeString(2)+" 3="+ReturnWaveTypeString(3);
                 tb("OPL Patch Format: wave1-wave2-alg-vib1-vib2 / mult1-mult2 _ commands");
-                tb("waveforms (OPL2 only): 0="+ReturnWaveTypeString(0)+" 1="+ReturnWaveTypeString(1)+" 2="+ReturnWaveTypeString(2)+" 3="+ReturnWaveTypeString(3) );
+                tb("waveforms (OPL2 only): {0}",wv );
                 tb("alg: aka 'Operator connection algorithm', 1=connected 0=disconnected (AM mode)");
                 tb("vibrato: Auto always uses the carrier vibrato. If alg=0, best results depends on the patch");
                 tb("\n");
             } else {
                 tb("OPM/OPN Patch Format: mult1-mult2-mult3-mult4 / dt1-dt2-dt3-dt4 _alg & commands");
                 tb("alg (algorithm): Narrows patch identification (do not change)");
-                tb("DT (Detune): Auto will use the average all detune levels. Better tracking requires setting DT by hand, per patch (see -help).");
-                tb(" tip for setting DT: when trigger is DT7, waveform will appear to swim left. DT3 swims right (left-to-right: 7-6-5-4/0-1-2-3)");
+                tb("DT (Detune): Auto will use the average all detune levels");
+                tb(" DT Tip: when trigger is DT7, waveform will appear to swim left. DT3 swims right (left-to-right: 7-6-5-4/0-1-2-3)");
                 tb("MULT (multiplier): Auto will choose the highest common denominator of all mults (this is best)");
                 tb("\n");
 
@@ -311,8 +336,6 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 fm3 mult 1 <- + force fm3 to use mult
 
         //* pt 1/5. - go through byte-by-byte, flag bytes that are safe to edit (v04 also wait commands)
         static bool[] ExamineVGMData(byte[] data, byte FMchip, int start, int end, ref bool[] WaitFlags) {
-            // tb("chiptype=0x"+Convert.ToString(FMchip,16)+" operators="+FM0.operators +" startdata="+Convert.ToString(start,16)+" enddata="+Convert.ToString(end,16)+" ="+Convert.ToString(end-start,16));
-            // Console.ReadKey();
             string detectedchipcodes="";
             bool[] byteflag = new bool[end];
             bool toif = false; int c=0;
