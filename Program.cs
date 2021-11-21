@@ -36,7 +36,8 @@ monofy? OPM panning is part of the feedback register, not the same as OPNA
 auto split?
 ? - could OPM DT2 be handled similarly to alg?
 ? OPL3?
-?	For OPL3 it would be a good time to refactor DATA.CS? idk	
+?	For OPL3 it would be a good time to refactor DATA.CS? idk
+CH#3 Extended Mode	
 Pin*Bot Mode
 	if a song uses DT or ML sweeps, extt has to add values. No way around it.
 	Split data into 10ms chunks then process through them
@@ -119,8 +120,7 @@ Advanced options: Patch ""PatchKey Commands""
             applies settings on a instrument-by-instrument basis, by providing some identifying info 
             then the desired settings. This can be used to fine-tune the tracking of the output, 
             particularly on very detuned FM instruments
-            This program will print a list of all the identified patches after running in the patchkey 
-            format. 
+            This program will print a list of all the identified patches in the patchkey format. 
             If the argument ""P P"" is used, the patch report will use an even simpler syntax for 
             quicker copy-pasting into .bat files
 
