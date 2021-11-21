@@ -116,36 +116,40 @@ Available options (4operator FM): DT(def 10), Mult(DEF unspecified, specifying m
 Available options (2operator OPL2): Mult(unspecified / automatic, again this is not recommended)
 Advanced options: Patch ""PatchKey Commands"" 
 
-                        *************** PatchKey Description ***************
-            applies settings on a instrument-by-instrument basis, by providing some identifying info 
-            then the desired settings. This can be used to fine-tune the tracking of the output, 
-            particularly on very detuned FM instruments
-            This program will print a list of all the identified patches in the patchkey format. 
-            If the argument ""P P"" is used, the patch report will use an even simpler syntax for 
-            quicker copy-pasting into .bat files
+Press any key to continue...";
+                tb(helptext);
+                Console.ReadKey();                
+                helptext=@"
+            *************** PatchKey Description ***************
+applies settings on a instrument-by-instrument basis, by providing some identifying info 
+then the desired settings. This can be used to fine-tune the tracking of the output, 
+particularly on very detuned FM instruments
+This program will print a list of all the identified patches in the patchkey format. 
+If the argument ""P P"" is used, the patch report will use an even simpler syntax for 
+quicker copy-pasting into .bat files
 
-                        *************** PatchKey Syntax ***************
-            4-Operator FM Synth PatchKey Syntax: 
-           ""patch""           patch info                           commands
-            v      v                                v v                                   v 
-            PATCH ""M1-M2-M3-M4 / DT1-DT2-DT3-DT4 ALG DT(desired) MULT(desired, optional)""
+Press any key to continue...";
+                tb(helptext);
+                Console.ReadKey();                
+                helptext=@"
+            *************** PatchKey Syntax ***************
+4-Operator FM Synth PatchKey Syntax: 
+""patch""           patch info                           commands
+v      v                                v v                                   v 
+PATCH ""M1-M2-M3-M4 / DT1-DT2-DT3-DT4 ALG DT(desired) MULT(desired, optional)""
 
-            2-Operator FM Synth PatchKey Syntax:
-           ""patch""             patch info                        
-            v      v                                           v 
-            PATCH ""WAVEFORM1-WAVEFORM1-ALG-VIBRATO1-VIBRATO2 / 
-            MULT1-MULT2 VIBRATO(desired) MULT(desired, optional)""
-                        ^             commands                  ^
-            4-OP Example: patch ""12-15-1-3 / 3-4-3-2 alg4 dt3"" 
-                if a 4-op patch has mult values of 12-15-1-3 and dt values of 3-4-3-2, use detune 3
-            4-OP Example: p ""12-15-1-3 / 3-4-3-2 a4 e3""
-                a simplified version of the example above
-            2-OP Example: patch ""0-0-0-1-0 / 1-2 v1""
-                a patch with wave1=0, wave2=0, ALG 0 (not connected), vib1=1 vib=0 is set to vib=1
+2-Operator FM Synth PatchKey Syntax:
+PATCH ""WAVEFORM1-WAVEFORM1-ALG-VIBRATO1-VIBRATO2 / MULT1-MULT2 VIBRATO(desired) MULT(desired, optional)""
+Examples:
+4-OP Example: patch ""12-15-1-3 / 3-4-3-2 alg4 dt3"" 
+    if a 4-op patch has mult values of 12-15-1-3 and dt values of 3-4-3-2, use detune 3
+4-OP Example: p ""12-15-1-3 / 3-4-3-2 a4 e3""
+    a simplified version of the example above
+2-OP Example: patch ""0-0-0-1-0 / 1-2 v1""
+    a patch with wave1=0, wave2=0, ALG 0 (not connected), vib1=1 vib=0 is set to vib=1
 
-            *NOTE: Patch Key MUST be in quotes if there are blank spaces!*
-
-        Press any key to continue...";
+*NOTE: Patch Key MUST be in quotes if there are blank spaces!*
+Press any key to continue...";
                 tb(helptext);
                 Console.ReadKey();                
                 helptext=@"
