@@ -12,6 +12,7 @@ using System.Linq;
 // vvv to publish with dependencies - but it'll be like 30 megs
 // dotnet publish -r win-x64 -c Release /p:PublishSingleFile=true /p:PublishTrimmed=true
 
+// v041 - fixed a bug that caused patchkey commands to default to 0 if unspecified
 
 /* v04 - major refactor
     Altwave removed, some DT algs removed
@@ -61,6 +62,7 @@ namespace EXTT
     public partial class Program {
         #region Constants & class declarations ----------
         static int VERSIONMAJOR = 0, VERSIONMINOR=4;
+        static int VERSIONPATCH=1;
         public delegate void WriteDelegate(string msg, params object[] args); // shortcut commands
         public static readonly WriteDelegate tb = Console.WriteLine; 
         delegate string WriteDelegate2(byte msg, int tobase);
@@ -108,7 +110,8 @@ namespace EXTT
         static void Main(string[] args) {
             debugstart(); // jump to a debug func for messing around
             #region PART 0/5 Check Valid VGM Input / Display Help ------------
-            tb("VGM External Trigger Tool Ver "+VERSIONMAJOR+"."+VERSIONMINOR+"\nA VGM hacking tool for creating external trigger waveforms for oscilloscopes\nUsage: EXE [options] Infile.VGM");
+            tb("VGM External Trigger Tool Ver "+VERSIONMAJOR+"."+VERSIONMINOR+VERSIONPATCH+
+            "\nA VGM hacking tool for creating external trigger waveforms for oscilloscopes\nUsage: EXE [options] Infile.VGM");
             if (args.Length < 1 || "-H"==args[0] || "-h"==args[0] || "h"==args[0] || "/?"==args[0] || "-help"==args[0] ) { 
                 string helptext=@"Help (-h or no arguments)
 Supported chips are these Yamaha FM synths: OPM, OPN, OPNA, OPNB, OPN2, OPL, Y8950, OPL2 
@@ -1029,11 +1032,11 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                 if (FMargs.LookForPatchKeys) { 
                     var keyvalues = new Dictionary<string,int>();
                     if (FMargs.DataMatchesPatchKeys(datavalues, ref keyvalues)) { // this will handle all loop stuff
-                        keyvalues.TryGetValue(desiredDTalg, out OutDTalg);
-                        keyvalues.TryGetValue(desiredMult, out OutMult);
-                        keyvalues.TryGetValue(desiredVibrato, out OutVibrato);
+                        int tmpvalue=99;
+                        if (keyvalues.TryGetValue(desiredDTalg, out tmpvalue)) OutDTalg=tmpvalue; //* bugfix 041 - TryGetValue will 'out' 0 if no match. This worked when I used 'int?'...
+                        if (keyvalues.TryGetValue(desiredMult, out tmpvalue)) OutMult=tmpvalue;
+                        if (keyvalues.TryGetValue(desiredVibrato, out tmpvalue)) OutVibrato=tmpvalue;
                         datavalues["P"]=1; // for ReturnLostPatches: mark this patch as succesfully patchkey'ed
-                        // tb("dtalg, mult= "+OutDTalg+" "+OutMult);
                     }
                 } 
 
