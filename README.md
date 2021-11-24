@@ -3,6 +3,8 @@ A .VGM hacking tool for FM synth oscilloscopes. For creating external trigger wa
 All this tool does is create edited .vgm files that play back exclusively in doot-mode. Perfect for using as External Triggers in oscilloscopes - such as SidWizPlus
 Supported chips: OPM, OPN, OPNA, OPNB, OPN2, OPL, Y8950, OPL2 
 
+[![SidWizPlus + EXTT Example](https://iili.io/5rqJHX.webp)](https://youtu.be/j8XTUCIRDMw)
+
 # Instructions
 This is a command line program. Alternatively, you can drag & drop to produce a file at default settings. The command -h or opening the .exe with no arguments will bring up help info.
 
