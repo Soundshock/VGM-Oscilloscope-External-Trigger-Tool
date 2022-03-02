@@ -90,9 +90,10 @@ namespace EXTT
         const string dt1 = "dt1";  const string dt2 = "dt2"; const string dt3 = "dt3"; const string dt4 = "dt4"; 
         const string wave1 = "wave1"; const string wave2 = "wave2"; const string alg = "alg"; const string vibrato1 = "vibrato1"; const string vibrato2 = "vibrato2"; 
         const string desiredDTalg = "desiredDTalg"; const string desiredMult = "desiredMult"; const string desiredVibrato = "desiredVibrato"; 
+        const string desiredForceOp = "desiredForceOp"; 
         public static readonly string[] patchkey_keys = new string[] {mult1, mult2, mult3, mult4, dt1, dt2, dt3, dt4, alg, desiredDTalg, desiredMult, 
-                                                                    wave1, wave2, vibrato1, vibrato2, desiredVibrato};
-        public static readonly string[] patchkey_keys_4op = new string[] {mult1, mult2, mult3, mult4, dt1, dt2, dt3, dt4, alg, desiredDTalg, desiredMult};
+                                                                    wave1, wave2, vibrato1, vibrato2, desiredVibrato, desiredForceOp};
+        public static readonly string[] patchkey_keys_4op = new string[] {mult1, mult2, mult3, mult4, dt1, dt2, dt3, dt4, alg, desiredDTalg, desiredMult, desiredForceOp};
         public static readonly string[] patchkey_keys_2op = new string[] {mult1, mult2, alg, wave1, wave2, vibrato1, vibrato2, desiredVibrato};
 
         static bool Channel3ModeDetected=false;
@@ -731,7 +732,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 } else {
                     /*
                         OPM / OPN patchkey input syntax                          vv desired dt alg, mult
-                        mult1 - mult2 - mult3 - mult4 / dt1 - dt2 - dt3 - dt4 _ e1m1
+                        mult1 - mult2 - mult3 - mult4 / dt1 - dt2 - dt3 - dt4 _ e1m1    forceop4 - forceop
                         4op example syntax: FM0 Parse 15-3-0-0/3-3-3-3_e9_m1
                         4op example syntax: FM0 Parse 15-3-0-0/3-3-3-3_dt9_mult1
                         
@@ -746,11 +747,14 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
                         todo - OPM DT2?
                     */
-                    if (value=="P") {CleanPatchReport=true; return false;}
+                    if (value=="P") {CleanPatchReport=true; return false;} // if P P
                     string s=""; //* debug
 
                     // value = value.ToUpper(); // redundant when implimented
                     // handle synonyms
+                    value = value.Replace("OUTOP", "F"); // * note these need to be in a specific order so they don't mangle each other
+                    value = value.Replace("FORCEOP", "F");
+                    value = value.Replace("OP", "F"); 
                     value = value.Replace("DT", "E"); 
                     value = value.Replace("MULT", "M");
                     value = value.Replace("VIBRATO", "V");
@@ -766,8 +770,9 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     value = value.Replace("RECTIFIEDSINE", "2");
                     value = value.Replace("QUARTERSINE", "3");
                     value = value.Replace("PULSESINE", "3");
-                    // s+="ParseValues2: input="+value+" "; //* debug
 
+                    // s+="ParseValues2: input="+value+" "; //* debug
+                    // tb(value);Console.ReadKey();
 
                     string[] StringSeparators, Segments;
                     if (operators==2) { // remove letters from required section. EG: "0-0-a0-v0-v1 / 2-3v1m1" -> 0-0-0-0-1 / 2-3_v1m1
@@ -792,8 +797,8 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     if (Segments.Length < 2) {PatchKey_Error(value + " (Segments.Length < 2)"); return false;} // if patch incomplete, throw error and exit
 
                     StringSeparators = new string[] {"-"};
-                    string[] values1 = Segments[0].Split(StringSeparators, StringSplitOptions.RemoveEmptyEntries);
-                    string[] values2 = Segments[1].Split(StringSeparators, StringSplitOptions.RemoveEmptyEntries);
+                    string[] values1 = Segments[0].Split(StringSeparators, StringSplitOptions.RemoveEmptyEntries); // 4op: ML
+                    string[] values2 = Segments[1].Split(StringSeparators, StringSplitOptions.RemoveEmptyEntries); // 4op: DT
 
                     // PrintStringArray(values1); // debug
                     // PrintStringArray(values2);
@@ -845,6 +850,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                             case "E": parser_out[desiredDTalg] = numerics[i+1]; break;
                             case "M": parser_out[desiredMult] = numerics[i+1]; break;
                             case "V": parser_out[desiredVibrato] = numerics[i+1]; break;
+                            case "F": parser_out[desiredForceOp] = numerics[i+1]; break;
                         }
                     }
 
@@ -911,6 +917,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 if (match) {
                     if (patch.ContainsKey(desiredDTalg)) { OutputData[desiredDTalg] = Convert.ToByte(patch[desiredDTalg]); }
                     if (patch.ContainsKey(desiredMult)) { OutputData[desiredMult] = Convert.ToByte(patch[desiredMult]); }
+                    if (patch.ContainsKey(desiredForceOp)) { OutputData[desiredForceOp] = patch[desiredForceOp]; } // v05
                     if (operators==2 && patch.ContainsKey(desiredVibrato)) { OutputData[desiredVibrato] = Convert.ToByte(patch[desiredVibrato]); }
                     return true;
                 } else {
@@ -990,6 +997,9 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                             p+=" Vibrato"+OutVibrato;
                         }
                     }
+                    if (LostPatches[i].ContainsKey("OUTOP")) {
+                        p+=" ForceOP"+LostPatches[i]["OUTOP"];
+                    }
                     if (LostPatches[i].ContainsKey("P") && !CleanPatchReport ) p+=" (patchkey)";
                     // s+="idx "+Convert.ToString(Convert.ToInt32(LostPatches[i]["IDX"]),16);
                     if (CleanPatchReport) {
@@ -1002,7 +1012,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                             p=" ! DT2=";
                             string ratios="";
                             // foreach (string lbl in k) {
-                                PrintDictionary(LostPatches[i]);
+                                // PrintDictionary(LostPatches[i]); // debug
                             for (int ii = 1; ii < 5; ii++) {
                                 byte dt2=Convert.ToByte(LostPatches[i]["dt2"+ii]); // can't use SR_DT2 for this as it'll only be there if bankexport is enabled
                                 if (dt2 > 0x00) dt2present=true;
@@ -1195,6 +1205,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     datavalues.Add(alg, Convert.ToInt32(Last3Bit(LABEL_VAL(FEEDBACK_ALG) ) ) );
                 }
                 int OutDT=99; int OutMult=99; int OutDTalg=99; int OutVibrato=99;//int OutCarrier=null;
+                outop=FMargs.forceop;
 
                 if (FMargs.LookForPatchKeys) { 
                     var keyvalues = new Dictionary<string,int>();
@@ -1203,11 +1214,16 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                         if (keyvalues.TryGetValue(desiredDTalg, out tmpvalue)) OutDTalg=tmpvalue; //* bugfix 041 - TryGetValue will 'out' 0 if no match. This worked when I used 'int?'...
                         if (keyvalues.TryGetValue(desiredMult, out tmpvalue)) OutMult=tmpvalue;
                         if (keyvalues.TryGetValue(desiredVibrato, out tmpvalue)) OutVibrato=tmpvalue;
+                        if (keyvalues.TryGetValue(desiredForceOp, out tmpvalue)) {
+                            outop=tmpvalue;
+                            if (outop > FMref.operators) outop=0;
+                            datavalues["OUTOP"]=outop; // forceop should be niche, as a command only use if necessary
+                            // if (outop > 0) tb(FMref.name+": outop {0} at idx 0x_{1}",outop,Convert.ToString(lastidx,16));
+                        } 
                         datavalues["P"]=1; // for ReturnLostPatches: mark this patch as succesfully patchkey'ed
                     }
                 } 
 
-                outop=FMargs.forceop;
                 // str += current_values[4]+"-"+current_values[5]+"-"+current_values[6]+"-"+current_values[7]+" / "; // debug, will break with OPL2, remove me
                 // str += current_values[0]+"-"+current_values[1]; // opl2 debug
                 // for (int i = 0; i < current_values.Length; i++) {
@@ -1218,13 +1234,11 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 // * Triggerify Part 3 / 4: Make Hard Edits to DTML, edits to TL are added to "appender" to be added after all the channels are done
                 // // careful with these LABEL_VAL calls, they're copied from the initial data and may be outdated (race condition) 
                 if (operators == 4) {  //* handle DT
-                    if (FMargs.forceop==0) { 
-                        outop=FMref.operators; // 4 or 2
-                        if (LastDTMLnmbr != 0) {        // main loop keeps track of last appearing DTML
+                    if (outop==0) {  // if ForceOp=0, use last DTML found (extra reliable for mult sweeps or incomplete patch data)
+                        outop=FMref.operators; // default to 4, or 2 if/when we expand this to OPL3
+                        if (LastDTMLnmbr != 0) {    // main loop keeps track of last appearing DTML
                             outop = LastDTMLnmbr;
                         }  
-                    } else {
-                        outop = FMargs.forceop;
                     }
                     if (FMref.operators == 4) { // todo redundant conditional
                         if (outop == 1) {muteA=2; muteB=3; muteC=4;}
@@ -1232,8 +1246,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                         if (outop == 3) {muteA=2; muteB=1; muteC=4;}
                         if (outop == 4) {muteA=2; muteB=3; muteC=1;}
                     }
-
-                    // if (currentTLoutOP == 0) currentTLoutOP = outop;    //? set initial value
 
                     if (OutDTalg == 99) { OutDTalg=FMargs.detunesetting; } 
                     OutDT = ReturnDesiredDT(datavalues, OutDTalg); //* <--- 'big function' for all DT algorithms
@@ -1562,11 +1574,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             return 0;
         }
 
-
-
-
-
-        static int ReturnDesiredDT(Dictionary<string,int> values, int DesiredDTalg) {
+        static int ReturnDesiredDT(Dictionary<string,int> values, int DesiredDTalg) {   // todo DT is a 4-bit value, first bit is a sign. This func works, but is ridiculous
             var LUT = new Dictionary<int, int>(); //DT lut
             LUT[0] = 0; LUT[1] = 1; LUT[2] = 2; LUT[3] = 3; 
             LUT[4] = 0; LUT[5] = -1; LUT[6] = -2; LUT[7] = -3;
@@ -2043,6 +2051,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 if (patch.ContainsKey(alg)) s+=" alg"+patch[alg]+" ";
                 if (patch.ContainsKey(desiredDTalg)) s+=" DT"+patch[desiredDTalg]+" ";
                 if (patch.ContainsKey(desiredMult)) s+=" MULT"+patch[desiredMult]+" ";
+                if (patch.ContainsKey(desiredForceOp)) s+=" FORCEOP"+patch[desiredMult]+" ";
             } else {
                 // 2op: wave1 - wave2 - alg - vibrato1 - vibrato2 / mult1 - mult2    commands - desiredMult, desiredVibrato
                 // s+=ReturnWaveTypeString(patch[wave1])+"-"+ReturnWaveTypeString(patch[wave2])+"-alg"+patch[alg]+"-vib"+patch[vibrato1]+"-vib"+patch[vibrato2]+" / "+patch[mult1]+"- "+patch[mult2]+" ";
@@ -2211,6 +2220,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 	// cache.detune = detune_adjustment(op_detune(opoffs), keycode);
 // 
 
+    // todo investigating frequency modified detune. vv via YMFM source vv
     //-------------------------------------------------
     //  detune_adjustment - given a 5-bit key code
     //  value and a 3-bit detune parameter, return a
