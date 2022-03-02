@@ -284,7 +284,8 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             operators=FMChannel2List[0].operators;
             
 
-            if (args[0].ToUpper()=="SOLO" || args[0].ToUpper()=="SOLOVGM"){
+            if (args[0].ToUpper()=="SOLO" || args[0].ToUpper()=="SOLOVGM" || args[0].ToUpper()=="MONO"){
+                if (args[0].ToUpper()=="MONO") {tb("EXTT: Error! No such argument: MONO. Did you mean SOLO / SOLOVGM?"); Environment.Exit(1);};
                 var solovgm = new EXTT.SoloVGM.Program();
                 solovgm.SoloVGM(data, args, chiptype, startVGMdata, endVGMdata, filename, FMSystemList, FMChannel2List);
             }
