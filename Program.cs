@@ -1,16 +1,52 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Timers; // used for display
+// using System.Timers; // was used for display
 using System.Linq;
-
-// using System.Reflection;
-// using System.Text;
-// using System.CommandLine; // not available for dotnet core
-// using System.Data.Linq; // has a useful binary class but is only in dotnet framework 4.x
+using System.IO.Compression; // gzip decompression
 
 // vvv to publish with dependencies - but it'll be like 30 megs
 // dotnet publish -r win-x64 -c Release /p:PublishSingleFile=true /p:PublishTrimmed=true
+
+/* 0v05 experimental
+    Major Features:
+    Added YM2608ToneEditor .bank export (out_bank.cs). To enable: [EXTT.exe] bank 1 [file]
+    Added .VGZ support (gzip compressed VGM)
+    Added SoloVGM functionality, for muting channels with hard edits. To use: [EXTT.exe] SOLOVGM [list of space separated channels]
+    FORCEOP returns, this time defaulting to 0 (auto), which will use the last DTML in the detected patch
+        forceop "auto" should be more reliable with 'incomplete' patches, or MULT sweeps
+    OPL3 Support (preliminary, 4-operator mode might be weird or broken)
+
+    Minor Features:
+    OPM DT2 and OPN Ch#3 Extended Mode is now noted in the Patch Report
+        for dealing with DT2, for best results check the reported ratios and adjust MULT to best available denominator (with mult0 being 0.5)
+            but you will have to do this manually for now
+        for ch#3 mode, you'll have to use FORCEOP
+            eventually I'll add a soloVGM option to split the channel of the source VGM
+
+    Bugfixes:
+    Fixed a bug in the timecode generation (ParseWaits was incorrectly using a signed int16)
+    Added more stuff to ExamineVGMData (hopefully no more UNKNOWN COMMAND spam)
+
+    Note:
+    The program now will remove and add commands to the vgm. This is the only way to make the triggers more reliable, but
+    it's possible it may cause sync issues with some VGM players
+
+    TODO
+    todo confirm ForceOP works. can it be integrated into patchkey?
+    TODO figure out how to soloVGM ym2612 DAC
+
+    better ch3 mode maybe? Triggerify check alg to see if it's appropriate to downscale mult? 
+
+    Granular Detune via frequency
+        This requires math formulas for converting BLOCK-FNUM to DT for OPN, and another for OPM which uses BLOCK-KEY-KEYFRACTION
+            DT affects the phase directly. The relationship between pitch and detune is logarithmic, maybe. 
+
+    Integrate MonofyVGM, soloVGM. Most VGM players do not support OPN Ch#3 extended masking so the latter may be very useful
+
+    OPLL, OPL4, OPX support: OPLL is quite different from OPL. OPL4 uses a 4-byte VGM command instead of 3. I have no idea what OPX is
+
+*/
 
 // v041 - fixed a bug that caused patchkey commands to default to 0 if unspecified
 
@@ -20,31 +56,12 @@ using System.Linq;
     MULTIPLIER is set AUTOMATICALLY (finally)
      ^ with these two, drag & drop tracking results should be much, much better!
     New chips supported: OPL (YM3526) & Y8950 (MSX-AUDIO, basically OPL + ADPCM-B)
-        todo OPL3 still to come
+        OPL3 still to come
     PatchKey system now supports 2-Operator FMs
         The syntax is different from 4-op, see -help
     Lost Patch Report now displays all the time and has some new features such as timecodes
         * input argument P P for clean patch report for copy/pasting into bat file
     Bugfixes
-*/
-
-/* v04 Notes / Limitations
-ExamineVGMData (function that preemptively flags FM commands and Wait commands) is a relic from when this was strictly a find-replace program
-but I'll still keep it because it makes other functions much simpler to read
-
-todo
-monofy? OPM panning is part of the feedback register, not the same as OPNA
-auto split?
-? - could OPM DT2 be handled similarly to alg?
-? OPL3?
-?	For OPL3 it would be a good time to refactor DATA.CS? idk
-CH#3 Extended Mode	
-Pin*Bot Mode
-	if a song uses DT or ML sweeps, extt has to add values. No way around it.
-	Split data into 10ms chunks then process through them
-Granular Detune
-	This requires math formulas for converting BLOCK-FNUM to DT for OPN, and another for OPM which uses BLOCK-KEY-KEYFRACTION
-        DT affects the phase directly. The relationship between pitch and detune is logarithmic, maybe. 
 */
 
 // 03 changelog
@@ -59,10 +76,11 @@ Granular Detune
 namespace EXTT
 
 {
-    public partial class Program {
+    public partial class Program 
+    {
         #region Constants & class declarations ----------
-        static int VERSIONMAJOR = 0, VERSIONMINOR=4;
-        static int VERSIONPATCH=1;
+        static int VERSIONMAJOR = 0, VERSIONMINOR=5;
+        static int VERSIONPATCH=0;
         public delegate void WriteDelegate(string msg, params object[] args); // shortcut commands
         public static readonly WriteDelegate tb = Console.WriteLine; 
         delegate string WriteDelegate2(byte msg, int tobase);
@@ -77,7 +95,7 @@ namespace EXTT
         public static readonly string[] patchkey_keys_4op = new string[] {mult1, mult2, mult3, mult4, dt1, dt2, dt3, dt4, alg, desiredDTalg, desiredMult};
         public static readonly string[] patchkey_keys_2op = new string[] {mult1, mult2, alg, wave1, wave2, vibrato1, vibrato2, desiredVibrato};
 
-        static bool Channel3ModeDetected=false; // todo ch#3 mode for OPNs. For now just detect and warn 
+        static bool Channel3ModeDetected=false;
 
         //? other const... misc patch data? KEYON1 KEYON2 KEYON3 DTML1 DTML2 DTML3 DTML4   etc etc etc?
 
@@ -88,35 +106,43 @@ namespace EXTT
         static Arguments FM2Args= new Arguments(99,99,"FM2"); static Arguments FM3Args= new Arguments(99,99,"FM3");
         static Arguments FM4Args= new Arguments(99,99,"FM4"); static Arguments FM5Args= new Arguments(99,99,"FM5");
         static Arguments FM6Args= new Arguments(99,99,"FM6"); static Arguments FM7Args= new Arguments(99,99,"FM7");
-        static Arguments FM8Args= new Arguments(99,99,"FM8"); 
+        static Arguments FM8Args= new Arguments(99,99,"FM8"); static Arguments FM9Args= new Arguments(99,99,"FM9"); 
+        static Arguments FM10Args= new Arguments(99,99,"FM10"); static Arguments FM11Args= new Arguments(99,99,"FM11"); 
+        static Arguments FM12Args= new Arguments(99,99,"FM12"); static Arguments FM13Args= new Arguments(99,99,"FM13"); 
+        static Arguments FM14Args= new Arguments(99,99,"FM14"); static Arguments FM15Args= new Arguments(99,99,"FM15"); 
+        static Arguments FM16Args= new Arguments(99,99,"FM16"); static Arguments FM17Args= new Arguments(99,99,"FM17"); 
         static byte chiptype=0;
+        static int operators=0;
 
         static Dictionary<string, Arguments> GetChannel = new Dictionary<string, Arguments>(); // ex. key/pair: "FM0" FM0channel
-        static FMchannel FM0 = new FMchannel(); static FMchannel FM1 = new FMchannel(); static FMchannel FM2 = new FMchannel();
-        static FMchannel FM3 = new FMchannel(); static FMchannel FM4 = new FMchannel(); static FMchannel FM5 = new FMchannel(); 
-        static FMchannel FM6 = new FMchannel(); static FMchannel FM7 = new FMchannel(); static FMchannel FM8 = new FMchannel();
+        // static FMchannel FM0 = new FMchannel(); static FMchannel FM1 = new FMchannel(); static FMchannel FM2 = new FMchannel();
+        // static FMchannel FM3 = new FMchannel(); static FMchannel FM4 = new FMchannel(); static FMchannel FM5 = new FMchannel(); 
+        // static FMchannel FM6 = new FMchannel(); static FMchannel FM7 = new FMchannel(); static FMchannel FM8 = new FMchannel();
         public static string LostPatchLog=""; // collects all lost patches logged by ReportLostPatches / ReturnLostPatches
         #endregion
          public static int ProcessArgument(string arg1, string arg2, string arg3) { // returns number of indexes to skip
             if (GetChannel.TryGetValue(arg1, out Arguments? currentchannel) ) { // if dictionary key 'arg' exists, ref it to currentchannel
-                tb("ProcessArgument: found FM arg, executing: "+arg1+" "+arg2+" "+arg3 ); // ex. FM0, DT, 0
+                // tb("ProcessArgument: found FM arg, executing: "+arg1+" "+arg2+" "+arg3 ); // ex. FM0, DT, 0
                 if (currentchannel.ParseArgument(arg2,arg3) ) return 2;                 // 3 index arg (per channel) - ex. FM0 DT 7
             } else { 
-                tb("ProcessArgument: found global arg, executing: "+arg1+" "+arg2 ); // 2 index global arg - ex altwaveform FALSE
+                // tb("ProcessArgument: found global arg, executing: "+arg1+" "+arg2 ); // 2 index global arg - ex altwaveform FALSE
                 if (GlobalArguments.ParseArgument(arg1,arg2) ) return 1;
             }
             return 0; // if Command.ParseValue returns false, it'll throw an error - Just continue to the next string and try again.
         }
-        static void Main(string[] args) {
+        static void Main(string[] args) 
+        {
             debugstart(); // jump to a debug func for messing around
             #region PART 0/5 Check Valid VGM Input / Display Help ------------
             tb("VGM External Trigger Tool Ver "+VERSIONMAJOR+"."+VERSIONMINOR+VERSIONPATCH+
-            "\nA VGM hacking tool for creating external trigger waveforms for oscilloscopes\nUsage: EXE [options] Infile.VGM");
+            "\nA VGM hacking tool for creating external trigger waveforms for oscilloscopes\nUsage: EXE [options] Infile.VGZ");
             if (args.Length < 1 || "-H"==args[0] || "-h"==args[0] || "h"==args[0] || "/?"==args[0] || "-help"==args[0] ) { 
                 string helptext=@"Help (-h or no arguments)
 Supported chips are these Yamaha FM synths: OPM, OPN, OPNA, OPNB, OPN2, OPL, Y8950, OPL2 
-Available options (4operator FM): DT(def 10), Mult(DEF unspecified, specifying mult is unneccessary)
+Available options (4operator FM): DT(def 10), FORCEOP (def 0, auto) Mult(def 99, auto)
 Available options (2operator OPL2): Mult(unspecified / automatic, again this is not recommended)
+Special options: BANK (def 0)  ... YM2608ToneEditor .bank export, 4-op only
+                 SOLOVGM [Arguments]  ... Mute channels. Example: EXE SSG0 InFile.VGZ would solo SSG0
 Advanced options: Patch ""PatchKey Commands"" 
 
 Press any key to continue...";
@@ -184,9 +210,9 @@ Press any key to continue...";
 Options may be set globally and/or per-channel, by preceding an option with a 'FM#' command (zero-bound)
 Per-channel commands will always take precedence over global commands.
 To prevent confusion, it's recommended to only use PatchKey globally.
-Example: invgm.VGM dt 0 FILE.VGM                    <- sets DT to 0 globally for all channels 
-Example: invgm.VGM dt 0 fm0 dt 2 FILE.VGM           <- does the above but sets dt to '0' for FM0
-Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel fm3 to detune 11
+Example: extt dt 0 FILE.vgz                    <- sets DT to 0 globally for all channels 
+Example: extt dt 0 fm0 dt 2 FILE.vgz           <- does the above but sets dt to '0' for FM0
+Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 to detune 11
 ... or just drag & drop.";
                 tb(helptext);
                 Environment.Exit(0);
@@ -195,14 +221,30 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                  tb("Error: No such file exists "+args[args.Length-1]+" "); Console.ReadKey(); 
                  Environment.Exit(1);
             }
-            byte[] data;
-            string filename = args[args.Length-1].ToString();             
-            data = File.ReadAllBytes(filename);
+
+            byte[] data = new byte[]{0,0,0};
+            string filename = args[args.Length-1].ToString();       
+
+            if (filename.Substring(filename.Length-3).ToUpper() == "VGZ") { // decompress VGZ
+                using FileStream compressedFileStream = File.Open(filename, FileMode.Open);
+                using var decompressor = new GZipStream(compressedFileStream, CompressionMode.Decompress);
+                using (MemoryStream ms = new MemoryStream()) {
+                    decompressor.CopyTo(ms);
+                    data = ms.ToArray();
+                }
+
+            } else {
+                data = File.ReadAllBytes(filename);
+            }
+
             if (data[0]!=0x56 && data[1]!=0x67 && data[2]!=0x6D) { // V G M 
-                tb("Error: Invalid File \""+filename+"\" (VGM identifier not found) if VGZ, please extract first");      
+                tb("Error: Invalid File \""+filename+"\" (VGM identifier not found)"); 
                 System.Threading.Thread.Sleep(TimeSpan.FromSeconds(2));
                 Environment.Exit(1);
             }
+
+
+
             #endregion
             #region PART 1/5 Detect FM Chip, Setup Initial Data --------------
             int startVGMdata = (Get32BitInt(data,0x34)+0x34); // tb("DEBUG: VGM data start point: 0x"+Convert.ToString(startVGMdata,16) );
@@ -213,21 +255,65 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                 chiptype=0x54; tb("Chip Detection: 0x30 clockrate: "+Get32BitInt(data,0x30)+" YM2151 OPM found");
             } else if (Get32BitInt(data,0x44) > 0){
                 chiptype=0x55; tb("Chip Detection: 0x44 clockrate: "+Get32BitInt(data,0x44)+" YM2203 OPN found"); 
-            }  else if (Get32BitInt(data,0x48) > 0){
+            } else if (Get32BitInt(data,0x48) > 0){
                 chiptype=0x56; tb("Chip Detection: 0x48 clockrate: "+Get32BitInt(data,0x48)+" YM2608 OPNA found"); 
-            }   else if (Get32BitInt(data,0x4C) > 0){
+            } else if (Get32BitInt(data,0x4C) > 0){
                 chiptype=0x58; tb("Chip Detection: 0x4C clockrate: "+Get32BitInt(data,0x4C)+" YM2610 OPNB found"); 
-            }  else if (Get32BitInt(data,0x50) > 0){
+            } else if (Get32BitInt(data,0x50) > 0){
                 chiptype=0x5A; tb("Chip Detection: 0x50 clockrate: "+Get32BitInt(data,0x50)+" YM3812 OPL2 found"); 
             } else if (Get32BitInt(data,0x54) > 0){
                 chiptype=0x5b; tb("Chip Detection: 0x54 clockrate: "+Get32BitInt(data,0x54)+" YM3526 OPL found"); 
             } else if (Get32BitInt(data,0x58) > 0){
                 chiptype=0x5c; tb("Chip Detection: 0x58 clockrate: "+Get32BitInt(data,0x58)+" MSX-AUDIO Y8950 (OPL) found"); 
+            } else if (Get32BitInt(data,0x5C) > 0){
+                chiptype=0x5E; tb("Chip Detection: 0x5C clockrate: "+Get32BitInt(data,0x5C)+" YMF262 OPL3 found"); 
+            } else if (Get32BitInt(data,0x60) > 0){
+                tb("Chip Detection: 0x60 "+Get32BitInt(data,0x60)+" YMF278 OPL4 found, but not supported!");
+                // chiptype=0x60; tb("Chip Detection: 0x60 clockrate: "+Get32BitInt(data,0x60)+" YMF278 OPL4 found"); // 
+            } else if (Get32BitInt(data,0x64) > 0){
+                tb("Chip Detection: 0x64 "+Get32BitInt(data,0x64)+" YMF271 OPX found, but not supported!");
+                // chiptype=0x64; tb("Chip Detection: 0x60 clockrate: "+Get32BitInt(data,0x64)+" YMF271 OPX found"); // 
             } else if (Get32BitInt(data,0x2C) > 0) {
-                chiptype=0x52; tb("Chip Detection: 0x2C clockrate: "+Get32BitInt(data,0x2C)+" YM2612 OPN2 found"); // check OPN2 last, as OPN2 DAC tends to be repurposed 
+                chiptype=0x52; tb("Chip Detection: 0x2C clockrate: "+Get32BitInt(data,0x2C)+" YM2612 OPN2 or YM3438 OPN2C found"); // check OPN2 last, as OPN2 DAC tends to be repurposed 
             }  
             
-            SetupData(chiptype);  //* INITIAL COMMAND SETUP (Data.cs)
+            var FMSystemList = new List<Dictionary<string,byte>>();
+            var FMChannel2List = new List<FMchannel2>();
+            SetupData2(chiptype, out FMSystemList, out FMChannel2List); 
+            // tb("syslist & channellist lengths: "+FMSystemList.Count+" "+FMChannel2List.Count);
+            operators=FMChannel2List[0].operators;
+            
+
+            if (args[0].ToUpper()=="SOLO" || args[0].ToUpper()=="SOLOVGM"){
+                var solovgm = new EXTT.SoloVGM.Program();
+                solovgm.SoloVGM(data, args, chiptype, startVGMdata, endVGMdata, filename, FMSystemList, FMChannel2List);
+            }
+
+            // populate TL1 TL2 TL3 DTML1 DTML2 etc...
+
+            // var StrOpsToChs = new List<string>(){"TL","DTML","WAVEFORM","VIB"};
+            if (chiptype == 0x52 || chiptype == 0x55 || chiptype == 0x58 || chiptype == 0x56) {
+                FMChannel2List[2].Add(TIMER_LOAD_SAVE, FMSystemList[0][TIMER_LOAD_SAVE]); // have ch#3 track ch#3 mode (second bit of this system reg)
+            }
+            foreach (FMchannel2 ch in FMChannel2List) { // ? does ch.Initialize makes everything else in here obsolete?
+                if (operators == 2) {
+                    ch.Add("TL1",ch.Op1["TL"]);ch.Add("TL2",ch.Op2["TL"]);  // todo this should all be in REF_LABEL_REG_OPS | REF_REG_LABEL_OPS
+                    ch.Add("DTML1",ch.Op1["DTML"]);ch.Add("DTML2",ch.Op2["DTML"]);
+                
+                    ch.Add("WAVEFORM1",ch.Op1["WAVEFORM"]);ch.Add("WAVEFORM2",ch.Op2["WAVEFORM"]);      // special?
+                    ch.Add("VIB1",ch.Op1["DR_LFO_AM_ENABLE"]);ch.Add("VIB2",ch.Op2["DR_LFO_AM_ENABLE"]);
+                }
+                if (operators == 4) {
+                    ch.Add("TL1",ch.Op1["TL"]);ch.Add("TL2",ch.Op2["TL"]);
+                    ch.Add("TL3",ch.Op3["TL"]);ch.Add("TL4",ch.Op4["TL"]);
+                    ch.Add("DTML1",ch.Op1["DTML"]);ch.Add("DTML2",ch.Op2["DTML"]);
+                    ch.Add("DTML3",ch.Op3["DTML"]);ch.Add("DTML4",ch.Op4["DTML"]);
+                    // ch.Add("WAVEFORM1",ch.Op1["WAVEFORM"]);ch.Add("WAVEFORM2",ch.Op2["WAVEFORM"]);   // YM2414 (DX11 TX81)
+                    // ch.Add("WAVEFORM3",ch.Op3["WAVEFORM"]);ch.Add("WAVEFORM4",ch.Op4["WAVEFORM"]);
+                }
+                ch.Initialize(); // populate merged ops, reverse dictionaries
+            }
+
             #endregion
             #region PART 2/5 Parse Arguments ---------------------------------
 
@@ -248,10 +334,10 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
             //* SCAN THROUGH DATA BYTE-BY-BYTE, FLAGGING FM COMMANDS THAT ARE SAFE TO EDIT
             //      this flags command bytes and wait bytes to make things a bit easier. It may also return timecodes if I add that
             bool[] WaitFlags = new bool[endVGMdata];
-            bool[] byteflag = ExamineVGMData(data, FM0.chip, startVGMdata, endVGMdata, ref WaitFlags);
+            bool[] byteflag = ExamineVGMData(data, FMChannel2List[0].chip, startVGMdata, endVGMdata, ref WaitFlags, false);
 
             #endregion
-            #region PART 4/5 Main Loop, External Triggerify ------------------
+            #region PART 4/5 To Main Loop, External Triggerify ------------------
             // PT 4 - Main Loop, External Triggerify
 
             //* pt1: Blanket edits across the board (for example removing all AR/DR/RS, channel feedback to 0, channel algorithms to 7)
@@ -259,47 +345,43 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
             //* Pt2 0.4: Parse through data, saving register indexes values as we go, if Detune / Mult changes are found search forward (in milliseconds) to find patches
 
             // Updates on a timer to speed things up
-            ProgressTimer = new System.Timers.Timer(20); 
-            ProgressTimer.AutoReset=true;
-            ProgressTimer.Enabled=true;
-            ProgressTimer.Elapsed += UpdateProgress;
+            // ProgressTimer = new System.Timers.Timer(20); 
+            // ProgressTimer.AutoReset=true;
+            // ProgressTimer.Enabled=true;
+            // ProgressTimer.Elapsed += UpdateProgress;
 
-
-            AutoTrigger(FM0, FM0Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-            AutoTrigger(FM1, FM1Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-            AutoTrigger(FM2, FM2Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-            if (chiptype==0x52 || chiptype==0x54 || chiptype==0x56 || chiptype==0x58 || chiptype>=0x5A){  // 6 voices - OPN2 / OPM / OPNA / OPL
-                AutoTrigger(FM3, FM3Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-                AutoTrigger(FM4, FM4Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-                AutoTrigger(FM5, FM5Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-            }
-            if (chiptype==0x54 || chiptype>=0x5A){     // 8 voices - OPM / OPL
-                AutoTrigger(FM6, FM6Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-                AutoTrigger(FM7, FM7Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-            }
-            if (chiptype>=0x5A){                     // 9 voices - OPL
-                AutoTrigger(FM8, FM8Args, data, byteflag, WaitFlags, startVGMdata, endVGMdata);
-            }
-
-            tb("EXTT complete. Creating timecode & preparing patch report...");
-            List<Arguments> arglist = new List<Arguments>() {FM0Args, FM1Args, FM2Args, FM3Args, FM4Args, FM5Args, FM6Args, FM7Args, FM8Args};
             int[] timecodes = new int[endVGMdata];
             timecodes=CreateTimeCode(timecodes, data, WaitFlags, startVGMdata, endVGMdata); // count samples, int value for every byte shows current 
 
-            foreach (Arguments a in arglist) {
+
+            List<Arguments> ChannelArgumentList = new List<Arguments>() {FM0Args, FM1Args, FM2Args, FM3Args, FM4Args, FM5Args, FM6Args, FM7Args, FM8Args,
+                                                      FM9Args, FM10Args, FM11Args, FM12Args, FM13Args, FM14Args, FM15Args, FM16Args, FM17Args};
+
+
+            for (int i = 0; i < FMChannel2List.Count; i++) {
+                // if (i == 2) { // debug
+                AutoTrigger(FMChannel2List[i], ChannelArgumentList[i], data, byteflag, WaitFlags, startVGMdata, endVGMdata, timecodes);
+                // }
+            }
+
+            // todo maybe kill LFO am sens on system level? anything else on system level?
+
+            tb("EXTT complete. Creating timecode & preparing patch report...");
+
+            foreach (Arguments a in ChannelArgumentList) {
                 if (a.LostPatches.Count() > 0) {
-                    foreach (Dictionary<string,int> lp in a.LostPatches){
-                        lp["TIMECODE"] = timecodes[Convert.ToInt32(lp["IDX"])];
-                    }
-                    LostPatchLog+=a.ReturnLostPatches(FM0.operators)+"\n";
+                    // foreach (Dictionary<string,int> lp in a.LostPatches){ // moved to Triggerify
+                    //     lp["TIMECODE"] = timecodes[Convert.ToInt32(lp["IDX"])];
+                    // }
+                    LostPatchLog+=a.ReturnLostPatches(operators)+"\n";
                 }
                 // FM0Args.LostPatches[0];
             }
 
-            ProgressTimer.Stop(); // stop timer
+            // ProgressTimer.Stop(); // stop timer
             tb("\n"+LostPatchLog);
 
-            if (FM0.operators==2) {
+            if (operators==2) {
                 string wv="0="+ReturnWaveTypeString(0)+" 1="+ReturnWaveTypeString(1)+" 2="+ReturnWaveTypeString(2)+" 3="+ReturnWaveTypeString(3);
                 tb("OPL Patch Format: wave1-wave2-alg-vib1-vib2 / mult1-mult2 _ commands");
                 tb("waveforms (OPL2 only): {0}",wv );
@@ -313,25 +395,148 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                 tb(" DT Tip: when trigger is DT7, waveform will appear to swim left. DT3 swims right (left-to-right: 7-6-5-4/0-1-2-3)");
                 tb("MULT (multiplier): Auto will choose the highest common denominator of all mults (this is best)");
                 tb("\n");
-
-                if (Channel3ModeDetected) tb("WARNING: CH#3 Extended Mode Detected - not supported yet\n");
+                // if (Channel3ModeDetected) tb("CH#3 Extended Mode Detected\n");
             }
 
             #endregion
             #region PART 5/5 Name & Save Output VGM --------------------------
+
+
+            //* 422 test: append data update header
+            // 0x04 EoF offset 
+            // 0x1c Loop offset - will have to rerun timecodes for this one
+            int AppendCnt = AppenderCount(Appender);
+
+            int newEoF = BitConverter.ToInt32(data,0x04)+AppendCnt; // ? does this have to be present?
+            // tb("old EOF="+BitConverter.ToInt32(data,0x04)+" new EoF="+newEoF+" appender cnt = "+AppendCnt); // debug
+            byte[] newEoFA = BitConverter.GetBytes(newEoF);
+            data[0x04] = newEoFA[0];
+            data[0x05] = newEoFA[1];
+            data[0x06] = newEoFA[2];
+            data[0x07] = newEoFA[3];
+
+            if (BitConverter.ToInt32(data,0x14) > 0) { // only update this if GD3 offset is present
+                int newGD3EoF = BitConverter.ToInt32(data,0x14)+AppendCnt;
+                // tb("old newGD3EoF="+BitConverter.ToInt32(data,0x14)+" new newGD3EoF="+newGD3EoF+" appender cnt = "+AppendCnt); // debug
+                byte[] newGD3EoFa = BitConverter.GetBytes(newGD3EoF);
+                data[0x14] = newGD3EoFa[0];
+                data[0x15] = newGD3EoFa[1];
+                data[0x16] = newGD3EoFa[2];
+                data[0x17] = newGD3EoFa[3];
+            }
+
+            if (BitConverter.ToInt32(data,0x1c) > 0) { //* handle loop, if present
+                int LoopPointIDX_1, samples_to_loop, samples_from_loop;
+                // should be 1015800
+                LoopPointIDX_1 = ReadLoops(out samples_to_loop, out samples_from_loop, (BitConverter.ToInt32(data,0x1c)+28), data, WaitFlags, startVGMdata, endVGMdata);
+        
+                // tb("specified loop duration="+BitConverter.ToInt32(data,0x20)+" "+SamplesToMinutes(BitConverter.ToInt32(data,0x20))+
+                // " actual loop duration="+samples_from_loop+" "+SamplesToMinutes(samples_from_loop) ); // debug
+                // tb("Samples start->Loop:"+samples_to_loop+" "+SamplesToMinutes(samples_to_loop)+
+                // " Samples loop->end:"+samples_from_loop+" "+SamplesToMinutes(samples_from_loop));
+
+                // tb("old data cnt="+data.Count()+" end+?"+(endVGMdata+AppendCnt));
+                data = AppendData(data, Appender); // ! ------- ------- ------- ------- ------- ------- if loop
+                // tb("new data cnt="+data.Count()+" end+?"+(endVGMdata+AppendCnt));
+
+
+
+                WaitFlags = new bool[data.Count()];
+                ExamineVGMData(data, chiptype, startVGMdata, (endVGMdata+AppendCnt), ref WaitFlags, false);
+                // timecodes=CreateTimeCode(timecodes, data, WaitFlags, startVGMdata, endVGMdata + AppendCnt); // count samples, int value for every byte shows current 
+                int LoopPointIDX_2 = FindLoopPoint(samples_to_loop, data, WaitFlags, startVGMdata, (endVGMdata+AppendCnt));
+
+                // // remake timecodes
+                byte[] newlooppoint = BitConverter.GetBytes(LoopPointIDX_2 - 28);
+                // tb("old LP="+BitConverter.ToInt32(data,0x1c)+" new LP="+LoopPointIDX_2); // debug
+                // tb("loop point data @ 0X_"+Convert.ToString(LoopPointIDX_2)+": "+Convert.ToString(data[LoopPointIDX_2],16)+" "
+                //     +Convert.ToString(data[LoopPointIDX_2+1],16)+" "+Convert.ToString(data[LoopPointIDX_2+2],16)+" ");
+                data[0x1C] = newlooppoint[0];
+                data[0x1D] = newlooppoint[1];
+                data[0x1E] = newlooppoint[2];
+                data[0x1F] = newlooppoint[3];
+
+                // * loop samples # should not change
+                // byte[] newoopsamples = BitConverter.GetBytes(LoopSamples);
+                // tb("old loop duration="+BitConverter.ToInt32(data,0x20)+" "+SamplesToMinutes(BitConverter.ToInt32(data,0x20))+" new loop duration="+LoopSamples+" "+SamplesToMinutes(LoopSamples) ); // debug
+                // data[0x20] = newoopsamples[0];
+                // data[0x21] = newoopsamples[1];
+                // data[0x22] = newoopsamples[2];
+                // data[0x23] = newoopsamples[3];
+            } else {
+                data = AppendData(data, Appender); // ! ------- ------- ------- ------- ------- ------- if no loop
+            }
+
             // PT 5 - Save output VGM
+
+            if (GlobalArguments.bankexport == 1) {
+                var patches_tmp = new List<Dictionary<string,int>>();
+                foreach (Arguments FMargs in ChannelArgumentList) {
+                    // FMargs.index;
+                    // FMargs.LostPatches
+                    foreach (var dict in FMargs.LostPatches) {
+                        
+                        dict.Add("name",Int32.Parse(FMargs.name.Substring(2)) );
+                        // foreach ()
+                        patches_tmp.Add(dict);
+                        // tb(kv.Key+" = 0x_"+Convert.ToString(kv.Value,16));
+                    }
+
+                }
+                #region Decimate Duplicate Patches (BANK EXPORT) unused (commented out)
+                // decimate duplicate patches
+                // patches_tmp.OrderBy(k => k["TIMECODE"]); // ? order by timecode 
+
+                // var patches = new List<Dictionary<string,int>>(){patches_tmp[0]};
+                // var patches = new List<Dictionary<string,int>>();
+
+                // tb("bankexport: unique patches = "+patches_tmp.Count); //Console.ReadKey();
+                // bool uniquepatch=false; // * decimate duplicate patches across channels. This works but it makes the output more confusing
+                // string[] k = new String[]{"DTML1", "DTML2", "DTML3","DTML4",FEEDBACK_ALG,"TL1"};
+                // foreach (Dictionary<string,int> p1 in patches_tmp) {
+                //     uniquepatch=false;
+                //     foreach (Dictionary<string,int> p2 in patches_tmp) {
+                //         if (p1["IDX"] != p2["IDX"]) { // so we do don't end up comparing patches to themselves
+                //             foreach (var kv1 in p1) {
+                //                 if (k.Contains(kv1.Key)) {
+                //                     if (p2.TryGetValue(kv1.Key, out int key2val) ) {
+                //                         // str+=kv1.Key+": "+Convert.ToString(kv1.Value,16)+" vs "+Convert.ToString(key2val,16)+" ";
+                //                         if (kv1.Value != key2val) {
+                //                             // str+="\n";
+                //                             uniquepatch=true; break;
+                //                         }
+                //                     }   
+                //                 }
+                //             }
+                //             break;
+
+                //         }
+                //     }
+                //     if (uniquepatch) {patches.Add(p1); uniquepatch=false;}
+                // }
+                // tb("bankexport: unique patches after decimation = "+patches.Count); //Console.ReadKey();
+                #endregion
+
+                var bankout = new io_bank.Program.BankOut(chiptype, patches_tmp, filename); // undecimated output
+                // var bankout = new io_bank.Program.BankOut(chiptype, patches, filename);
+                // var bankout = new io_bank.Program
+
+            }
+
+
             string outfile = ""; // add suffixes to filename...
-            Arguments[] FMargs = new Arguments[] {FM0Args, FM1Args, FM2Args, FM3Args, FM4Args, FM5Args, FM6Args, FM7Args, FM8Args};
-            foreach (Arguments FMx in FMargs){
+
+            foreach (Arguments FMx in ChannelArgumentList){
                 outfile+=FMx.AddToFileName();
             }
 
-            outfile=filename+".extt"+GlobalArguments.AddGlobalValuesToFilename()+outfile+".vgm";
+            outfile=filename+"_extt"+GlobalArguments.AddGlobalValuesToFilename()+outfile+".vgm";
             tb("Writing "+outfile);
 
             if (File.Exists(outfile)) {
                 File.Delete(outfile);
             }
+            // using (BinaryWriter bw = new BinaryWriter())
             using (FileStream fs = File.Create(outfile)) {
                 fs.Write(data, 0, data.Length);
             }                
@@ -342,18 +547,20 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
         }
 
         //* pt 1/5. - go through byte-by-byte, flag bytes that are safe to edit (v04 also wait commands)
-        static bool[] ExamineVGMData(byte[] data, byte FMchip, int start, int end, ref bool[] WaitFlags) {
+        static public bool[] ExamineVGMData(byte[] data, byte FMchip, int start, int end, ref bool[] WaitFlags, bool quiet) { // updated v42: DAC stream, complete (maybe) data skip
             string detectedchipcodes="";
             bool[] byteflag = new bool[end];
             bool toif = false; int c=0;
+            // tb("datalength="+data.Count());
             for (int i = 0; i < end;i++) {byteflag[i]=false;} // initialize all flags to false
 
             int[] chips = new int[256]; //* log first location of chip code
             for (int i = 0; i < chips.Length; i++) {chips[i]=0;};
-
+            // tb("start = 0x"+Convert.ToString(start,16));
             for (int i = start; i < end; i++){
                 switch (data[i]){
-                    //* skip (and log) additional chips
+                    //* skip (and log) additional chip cmnds
+                    case byte n when (n >= 0x30 && n <= 0x3F): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // dual chip two-bytes
                     case 0x4F: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // two-byte GameGear command (these show up on Genesis)
                     case 0x50: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // two-byte SN76496 command (such as Genesis/MD PSG)
                     case 0xA0: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte AY8910 command (such as x1 turbo)
@@ -363,7 +570,21 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                     case 0xB6: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte uPD7759 command
                     case 0xB7: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte OKIM6258 command
                     case 0xB8: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte OKIM6295 command
-                    // case 0xC0: i+=3; if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; break; // four-byte Sega PCM command
+                    case 0xB9: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte HuC6280 command
+                    case 0xBA: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte K053260 command
+                    case 0xBB: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte POKEY command
+                    case 0xBC: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte WonderSwan command
+                    case 0xBD: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte SAA1099 command
+                    case 0xBE: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte ES5506 command
+                    case 0xBF: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte GA20 command
+                    case byte n when (n >= 0x40 && n <= 0x4E): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // dual chip three-bytes
+                    case byte n when (n >= 0xA1 && n <= 0xAF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // dual chip three-bytes cnt 
+                    case 0xC0: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // Four-byte Sega PCM command
+                    case byte n when (n >= 0xC1 && n <= 0xD6): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // Other Four-byte cmds
+                    case byte n when (n >= 0xC9 && n <= 0xCF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // dual chip Four-bytes
+                    case byte n when (n >= 0xD7 && n <= 0xDF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // dual chip Four-bytes cnt.
+                    case 0xE1: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=4; break; // Five-byte C352 command
+                    case byte n when (n >= 0xE2 && n <= 0xFF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=4; break; // dual chip five-bytes
                     case 0x52:  //* If OPM+OPN2 it's probably the Bally/Williams/Midway DAC -> OPN2 DAC trick or similar
                         if (FMchip != 0x52) { 
                             if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte Additional OPN2 command
@@ -374,7 +595,8 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                     case 0x62: WaitFlags[i]=true; break;
                     case 0x63: WaitFlags[i]=true; break;
                     // case 0x66: i=end; tb("end reached @ 0x"+i); break; // end of sound data
-                    case 0x66: i=end; tb("ExamineVGMdata: end reached @ 0x"+Convert.ToString(i,16) ); break; // end of sound data
+                    case 0x66: i=end; tb("ExamineVGMdata: 0x66 end byte reached @ 0x"+Convert.ToString(i,16) ); break; // end of sound data
+                    // case 0x66: i=end; break; // end of sound data
                     case 0x67: // data block: 0x67 0x66 tt ss ss ss ss (data)
                         int tmp=Get32BitInt(data,i+3);
                         // tb("ExamineVGMdata: 0x"+Convert.ToString(i,16)+": data block size="+Convert.ToString(tmp,16)+" skipping to 0x"+Convert.ToString(i+tmp,16));
@@ -382,6 +604,11 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                         break;
                     case byte n when (n >= 0x70 && n <= 0x7F): WaitFlags[i]=true; break; // more waits. oh neat c# can do this
                     case byte n when (n >= 0x80 && n <= 0x8F): WaitFlags[i]=true; break; // OPN2 sample write & wait
+                    case byte n when (n >= 0x90 && n <= 0x91): i+=4; break; // DAC Stream Control Write       0x90 ss tt pp cc
+                    case 0x92: i+=5; break; // DAC Stream Control Start Stream: 0x93 ss aa aa aa aa mm ll ll ll ll
+                    case 0x93: i+=10; break; // DAC Stream Control Start Stream: 0x93 ss aa aa aa aa mm ll ll ll ll
+                    case 0x94: i++; break; // DAC Stream Control Stop Stream: 0x94 ss
+                    case 0x95: i+=4; break; // DAC Stream Control Start Stream (fast call):  0x95 ss bb bb ff
                     case 0xE0: i+=4; break; // OPN2 PCM pointer, followed by 32-bit value 
                     // case byte FMchip: break; // not possible to do this type of comparison in switch?
                     default: toif=true;break; //* all FMchip commands should go through to the next conditional
@@ -394,11 +621,11 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                             }
                         }
                         byteflag[i]=true; // byteflag[i+1]=true;byteflag[i+2]=true; //* mark only the first byte so we don't trip over the same data. Was having a problem with lines like 54-54-xx..
+                        // tb("xvgm: "+Convert.ToString(data[i],16)); Console.ReadKey();
                         i+=2; // all FM chip commands are 3-byte values
                         c++; // count up all our commands
                     } else {
                         tb("ExamineVGMData: UNKNOWN COMMAND @0x"+(Convert.ToString(i,16))+": 0x"+Convert.ToString(data[i],16));
-                        // Console.ReadKey();
                     }
                     toif=false;
                 }
@@ -420,12 +647,10 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                     }
                 }
             }
-            
-            tb("ExamineVGMData: scanned "+ (end-start)+" bytes, found "+c+" FM commands. Total bytes / command-related-bytes: "+ String.Format("{0:P2}.", Decimal.Divide((c*3),(end-start)) ));
-            if (detectedchipcodes != "") tb("ExamineVGMData: vvvvv Additional Chip Report vvvvv \n"+detectedchipcodes);
-            // tb("Good so far. Press any key to continue"); Console.ReadKey();
-            // tb("continuing...");
-            // System.Threading.Thread.Sleep(TimeSpan.FromSeconds(1));
+            if (!quiet) {
+                tb("ExamineVGMData: scanned "+ (end-start)+" bytes, found "+c+" FM commands. Total bytes / command-related-bytes: "+ String.Format("{0:P2}.", Decimal.Divide((c*3),(end-start)) ));
+                if (detectedchipcodes != "") tb("ExamineVGMData: vvvvv Additional Chip Report vvvvv \n"+detectedchipcodes);
+            }
             return byteflag;
         }
 
@@ -439,15 +664,16 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                 case 0x5A: if (b==FMchip) return true; break;   // OPL2
                 case 0x5B: if (b==FMchip) return true; break;   // OPL (YM3526) 
                 case 0x5C: if (b==FMchip) return true; break;   // OPL MSX-AUDIO (Y8950) 
-                // case 0x5E: if (b==0x5E || b==0x5F) return true; break;   // todo OPL3 (YMF262)
+                case 0x5E: if (b==0x5E || b==0x5F) return true; break;   // OPL3 (YMF262)
 
             }
             return false;
         }
 
-        public class Arguments { // contains global & per channel settings to be fed into main loop
+        public class Arguments { // contains global & per channel settings to be fed into main loop. Patch data is then fed back in, for patch report and for bank export
             // public int detunesetting, forceop, forcemult, altwaveform;
             public int detunesetting, forcemult;
+            public int forceop = 0; public int bankexport = 0; // v42
             public string name;
             public bool CleanPatchReport=false; // simplify patch report for copy/paste if arg P P
             public List<Dictionary<string,int>> PatchKeys2 = new List<Dictionary<string,int>>();
@@ -456,6 +682,14 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
             public List<Dictionary<string,int>> LostPatches = new List<Dictionary<string,int>>();
 
             public List<int> LostPatchCnt = new List<int>();
+
+            public Arguments(int detunesetting, int forcemult, string name){
+                this.detunesetting = detunesetting;
+                // this.forceop = forceop; // delete me?
+                this.forcemult = forcemult;
+                // this.altwaveform = altwaveform; // delete me
+                this.name=name;
+            }
 
             public bool ParseArgument(string property, string value) { // returns true if succesful
                 if (value == "FALSE") value = "0";
@@ -477,9 +711,14 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                             case "DT": this.detunesetting = intval; this.suffix+="DT"+detunesetting; break;
                             case "MULT": this.forcemult = intval; this.suffix+="Mult"+forcemult; break;
                             case "FORCEMULT": this.forcemult = intval; this.suffix+="Mult"+forcemult; break;
-                            // case "FORCEOP": this.forceop = intval; this.suffix+="op"+forceop; break; // nonfunctional
+                            case "FORCEOP": this.forceop = intval; if (intval>0) this.suffix+="op"+forceop; break; 
+                            case "OP": this.forceop = intval; if (intval>0) this.suffix+="op"+forceop; break; 
+                            case "BANK": GlobalArguments.bankexport=intval; break; 
+                            case "BANKOUT": GlobalArguments.bankexport=intval; break; 
+                            case "BANKEXPORT": GlobalArguments.bankexport=intval; break; 
+                            case "WRITEBANK": GlobalArguments.bankexport=intval; break; 
                             // case "ADDMULT": this.forcemult = intval; this.suffix+="Mult"+forcemult; break; // nonfunctional
-                            default: tb("PARSEVALUE: property "+property +"not found"); return false;
+                            default: tb("PARSEVALUE: property "+property +" not found"); return false;
                         }
                         // tb ("value good?");
                         return true;
@@ -526,11 +765,11 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                     value = value.Replace("RECTIFIEDSINE", "2");
                     value = value.Replace("QUARTERSINE", "3");
                     value = value.Replace("PULSESINE", "3");
-                    s+="ParseValues2: input="+value+" "; //* debug
+                    // s+="ParseValues2: input="+value+" "; //* debug
 
 
                     string[] StringSeparators, Segments;
-                    if (FM0.operators==2) { // remove letters from required section. EG: "0-0-a0-v0-v1 / 2-3v1m1" -> 0-0-0-0-1 / 2-3_v1m1
+                    if (operators==2) { // remove letters from required section. EG: "0-0-a0-v0-v1 / 2-3v1m1" -> 0-0-0-0-1 / 2-3_v1m1
                         StringSeparators = new string[] {"/"};
                         Segments = value.Split(StringSeparators, StringSplitOptions.RemoveEmptyEntries);
                         if (Segments.Length < 2) {PatchKey_Error(value + " (Segments.Length < 2)"); return false;} // if patch incomplete, throw error and exit
@@ -560,7 +799,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                     // tb(commands);'
 
                     var parser_out = new Dictionary<string,int>();
-                    if (FM0.operators == 4) {  // handle identifiers (required values)
+                    if (operators == 4) {  // handle identifiers (required values)
                         if (values1.Length != 4) {PatchKey_Error(value + " (values1.Length != 4)"); return false;}
                         if (values2.Length != 4) {PatchKey_Error(value + " (values2.Length != 4)"); return false;}
                         parser_out[mult1] = Int32.Parse(values1[0]);
@@ -610,21 +849,22 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
 
                     PatchKeys2.Add(parser_out); // copy parsed patchkey to PatchKeys list
 
-                    s+="Output(dictionary form)= "+PrintPatch(parser_out, FM0.operators); //* debug
+                    s+="Output(dictionary form)= "+PrintPatch(parser_out, operators); //* debug
                     // foreach (string k in parser_out.Keys) {
                     //     s+=k+"="+parser_out[k]+" ";
                     // }
-                    tb(s); //* debug text
+                    // tb(s); //* debug text
                     this.LookForPatchKeys = true;
                     return true; // return true if succesful and dictionary as ref, much like int32.TryParse
                 }
             }
 
-            public bool CompareTwoPatchKeys(Dictionary<string,int> Key1, Dictionary<string,int> Key2) {
+            public bool CompareTwoPatchKeys(Dictionary<string,int> Key1, Dictionary<string,int> Key2, String[] keyarray) {
                 // if (Key1.SequenceEqual(Key2)) return true; // old, this needs to be more robust if we want to add additional info, such as full patch data or timecodes
                 // check for minimum Count? 
+                // tb(Key1.Count+" "+Key2.Count); Console.ReadKey();
                 foreach (KeyValuePair<string,int> kv in Key1) {
-                    if (patchkey_keys.Contains(kv.Key)) { // patchkey_keys: only compare relevant patchkeys like mult, dt, desiredDTalg, etc - but not things like TL or timecode or whatever
+                    if (keyarray.Contains(kv.Key)) { // patchkey_keys: only compare relevant patchkeys like mult, dt, desiredDTalg, etc - but not things like TL or timecode or whatever
                         if (Key2.TryGetValue(kv.Key, out int Key2Value) ) { // if Key2 has this key,
                             if (kv.Value != Key2Value) { return false;}     //  compare value. If key absent or value doesn't match, return false (no match)
                         } else { return false;}
@@ -638,7 +878,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
             string[] requiredkeys, optionalkeys;
             requiredkeys = new string[] {mult1, mult2, mult3, mult4, dt1, dt2, dt3, dt4};
             optionalkeys = new string[] {alg};
-            if (FM0.operators==2) {
+            if (operators==2) {
                 requiredkeys = new string[] {wave1, wave2, mult1, mult2};
                 optionalkeys = new string[] {alg, vibrato1, vibrato2};
             }
@@ -670,7 +910,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                 if (match) {
                     if (patch.ContainsKey(desiredDTalg)) { OutputData[desiredDTalg] = Convert.ToByte(patch[desiredDTalg]); }
                     if (patch.ContainsKey(desiredMult)) { OutputData[desiredMult] = Convert.ToByte(patch[desiredMult]); }
-                    if (FM0.operators==2 && patch.ContainsKey(desiredVibrato)) { OutputData[desiredVibrato] = Convert.ToByte(patch[desiredVibrato]); }
+                    if (operators==2 && patch.ContainsKey(desiredVibrato)) { OutputData[desiredVibrato] = Convert.ToByte(patch[desiredVibrato]); }
                     return true;
                 } else {
                     // AddLostPatch(SanitizePatchKey(InputData) ); // strips out keys like DTML1 or KeyOn or whatever for easier compare
@@ -692,7 +932,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
             public void AddLostPatch(Dictionary<string,int> inputpatch) { // now all patches from data
                 bool newpatch=true; int idx=0;
                 foreach (Dictionary<string,int> existingpatch in LostPatches) {
-                    if (CompareTwoPatchKeys(existingpatch, inputpatch)) {
+                    if (CompareTwoPatchKeys(existingpatch, inputpatch, patchkey_keys)) {
                         LostPatchCnt[idx]++; // how many occurences of this patch in data ++
                         newpatch=false;
                         break;
@@ -705,12 +945,20 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                 }
             }
 
+            // public string DecodeRegister(int reg, FMchannel ch) {
+            //     // in: reg(byte) 
+            //     // out: reg(string) (?) which then goes through decimation based on DTML/MULT/etc...
+            //     // ultimate out: io:FMpatch                
+            //     if ()
+
+            // }
+
             public string ReturnLostPatches(int operators) {
                 if (LostPatches.Count == 0){return "";}
                 string h=""; string s=""; string p=""; // header, string, patch
                 // s+=this.name+" ("+LostPatches.Count+" / "+LostPatchCnt.Count+")"+": ---- Lost patch report ---- ";
                 h+=this.name+" ("+LostPatches.Count+" / "+LostPatchCnt.Count+")"+": --------  patch report ----- ";
-                if (FM0.operators==4) h+= "dt setting:"+this.detunesetting+" ("+DetuneDescription(this.detunesetting)+")";
+                if (operators==4) h+= "dt setting:"+this.detunesetting+" ("+DetuneDescription(this.detunesetting)+")";
                 if (this.forcemult < 99) h+=" mult:"+this.forcemult;
                 h+="\n";
 
@@ -718,8 +966,8 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                 // SINE-SINE-ALG1-VIBRAT0-VIBRATO1 / 1-2
                 for (int i = 0; i < LostPatches.Count; i++) {
                     if (!CleanPatchReport) s+=SamplesToMinutes(LostPatches[i]["TIMECODE"])+" (Count:"+ LostPatchCnt[i]+") ";
-                    p+=PrintPatch(LostPatches[i],FM0.operators);
-                    if (FM0.operators==4) {
+                    p+=PrintPatch(LostPatches[i],operators);
+                    if (operators==4) {
                         int outDT = LostPatches[i]["OUTDT"];
                         if (CleanPatchReport) {
                             p+="e"+outDT;
@@ -733,7 +981,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                     } else {
                         p+=" mult"+OutMult;
                     }
-                    if (FM0.operators==2) {
+                    if (operators==2) {
                         int OutVibrato = LostPatches[i]["OUTVIBRATO"];
                         if (CleanPatchReport) {
                             p+="v"+OutVibrato;
@@ -747,6 +995,34 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                         s+="p \""+p+"\" ^"; p=""; 
                     } else {
                         s+=p; p="";
+                        if (chiptype==0x54) { /// XX-YYYYY DT2 / SR. (DT2 cut from OPN to make Chowning cry)    
+                            // string[] k = new string[]{SR_DT2+1,SR_DT2+1,SR_DT2+3,SR_DT2+4}; // * show DT2 info in patch report
+                            bool dt2present=false;
+                            p=" ! DT2=";
+                            string ratios="";
+                            // foreach (string lbl in k) {
+                                PrintDictionary(LostPatches[i]);
+                            for (int ii = 1; ii < 5; ii++) {
+                                byte dt2=Convert.ToByte(LostPatches[i]["dt2"+ii]); // can't use SR_DT2 for this as it'll only be there if bankexport is enabled
+                                if (dt2 > 0x00) dt2present=true;
+                                p+=dt2;
+                                ratios+=String.Format("{0:0.00}",DT2ratio(dt2,Convert.ToByte(LostPatches[i]["mult"+ii])) )+" ";
+                            }
+                            if (dt2present) {
+                                s+=p+" ratios = "+ratios; 
+
+                            }
+                            p="";
+                        }
+                        if (Channel3ModeDetected) {
+                            if (LostPatches[i].ContainsKey("ch3mode")) {
+                                if (LostPatches[i]["ch3mode"] == 1) {
+                                    s+=" ! CH#3 Extended Mode";
+                                }
+                            }
+                        }
+
+
                     }
                     s+="\n";
                 }
@@ -755,23 +1031,15 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
             }
 
 
-            public Arguments(int detunesetting, int forcemult, string name){
-                this.detunesetting = detunesetting;
-                // this.forceop = forceop; // delete me?
-                this.forcemult = forcemult;
-                // this.altwaveform = altwaveform; // delete me
-                this.name=name;
-            }
 
 
             public string AddGlobalValuesToFilename(){ //* only use for global values
                 string s="";
-                // if (forceop > 0 && forceop < 4) s+= "Op"+forceop; // <5?
                 if (forcemult < 16 && forcemult > -16) s+= "Mult"+forcemult;
                 // if (altwaveform > 0) s+= "AltWave"; 
                 if (this.LookForPatchKeys) s+= "MultiPatch";
-                // if (forceop > 0 || forceop < 4) s+= "Op"+forceop; // <5?
-                if (FM0.operators==4){
+                if (forceop > 0 && forceop < 5) s+= "Op"+forceop;
+                if (operators==4){
                     return "DT"+this.detunesetting+s;
                 } else {
                     return s; // no detune for OPL2
@@ -787,14 +1055,14 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
             }
             public void MatchAgainstGlobalValues(){ // if values are not specified by arguments, set them to global values
                 if (this.detunesetting > 98) this.detunesetting = GlobalArguments.detunesetting;
-                // if (this.forceop > 98) this.forceop = GlobalArguments.forceop;
+                if (this.forceop > 98) this.forceop = GlobalArguments.forceop;
                 if (this.forcemult > 98) this.forcemult = GlobalArguments.forcemult;
                 // if (this.altwaveform > 98) this.altwaveform = GlobalArguments.altwaveform;
                 if (!this.LookForPatchKeys && GlobalArguments.LookForPatchKeys){
                     // this.PatchKeys = GlobalArguments.PatchKeys.Cast<FMpatchkey>().ToList();
                     this.PatchKeys2 = GlobalArguments.PatchKeys2.Cast<Dictionary<string,int>>().ToList();
                     this.LookForPatchKeys=true;
-                    tb("MatchAgainstGlobalValues: Casting FMpatchkey list (Count="+this.PatchKeys2.Count()+") to "+this.name);
+                    // tb("MatchAgainstGlobalValues: Casting FMpatchkey list (Count="+this.PatchKeys2.Count()+") to "+this.name);
                 }
                 if (!this.CleanPatchReport && GlobalArguments.CleanPatchReport) this.CleanPatchReport = true;
             }
@@ -809,197 +1077,95 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
             }
         }
 
-        public struct FMchannel // Channel specific register reference, at least the relevant ones. set up in Data.cs
-        {   // todo this should be replaced with a whole register map, set up in data.cs and operating as FMregisters
-            public string name; // debug
-            public byte chip; // VGM chip code: 52/53 for opn2, 54 OPM, 55 OPN, 56/57 for OPNA, 90 OPL2 91 OPL 92 Y8950
-            public byte op1_TL, op2_TL, op3_TL, op4_TL;
-            public byte op1_DTML, op2_DTML, op3_DTML, op4_DTML;
-            public byte op1_waveform, op2_waveform;
-            public byte[] AR,DR,SR,RR; // no need to split these just lump them in an array
-            public byte[] keyon;
-            public byte ALG;
-            public int operators;
-            // public byte[] LFO;
-            public FMchannel(int ops, byte chipcode) {
-                operators = ops;
-                this.chip = chipcode;
-                op1_TL=0x00; op2_TL=0x00; op3_TL=0x00; op4_TL=0x00;
-                op1_DTML=0x00; op2_DTML=0x00; op3_DTML=0x00; op4_DTML=0x00;
-                op1_waveform=0x00; op2_waveform=0x00;
-                AR = new byte[ops];
-                DR = new byte[ops];
-                SR = new byte[ops];
-                RR = new byte[ops];
-                // if (ops<4) {keyon = new byte[3];} else {keyon = new byte[2];}   // OPL keyon is 5 half-bytes
-                keyon = new byte[3] {0,0,0};   // OPL keyon is 5 half-bytes, using two bytes then >20 for on <20 for off
-                ALG = 0x00;
-                name = "FM?";
-                // LFO = new byte[2]; // one per OPL operator... -- shared with multiplier, disregard
-            }
-  
-            public void SetAR(byte AR0, byte AR1, byte AR2, byte AR3){ this.AR[0]=AR0;this.AR[1]=AR1;this.AR[2]=AR2;this.AR[3]=AR3; }
-            public void SetAR(byte AR0, byte AR1) { this.AR[0]=AR0;this.AR[1]=AR1; } // 2 op overloads
-
-            public void SetDR(byte DR0, byte DR1, byte DR2, byte DR3){ this.DR[0]=DR0;this.DR[1]=DR1;this.DR[2]=DR2;this.DR[3]=DR3; }
-            public void SetDR(byte DR0, byte DR1){ this.DR[0]=DR0;this.DR[1]=DR1; }
-            public void SetRR(byte RR0, byte RR1, byte RR2, byte RR3){ this.RR[0]=RR0;this.RR[1]=RR1;this.RR[2]=RR2;this.RR[3]=RR3; }
-            public void SetRR(byte RR0, byte RR1){ this.RR[0]=RR0;this.RR[1]=RR1; }
-
-            public bool FoundKeyDownCommand(int operators, int idx, byte[] data, bool[] byteflag){ // to be used in main loop
-                // string s=""; tb(cts(key0,16)+" "+cts(key2,16)+" "+cts(key1,16)); Console.ReadKey();
-                if (!byteflag[idx]) return false;
-
-                if (operators==2) { // 2-operator OPL2
-                        // tb(s+"... FoundKeyDownCommand found operators==2 @ 0x"+Convert.ToString(idx));
-                    // if (data[idx]==key0 && data[idx+1]==key1 && data[idx+2]>0x20) { // * is >0x20 reliable?
-                    if (data[idx]==this.keyon[0] && data[idx+1]==this.keyon[1] && data[idx+2]>0x20) { // * is >0x20 reliable?
-                        // tb("... FoundKeyDownCommand found operators==2 @ 0x"+Convert.ToString(idx));
-                        return true;
-
-                    } //else {tb(s);}
-                } else { // 4-operators
-                    if (data[idx]==this.keyon[0] && data[idx+1]==this.keyon[1] && data[idx+2]==this.keyon[2]) {
-                    // if (data[idx]==key0 && data[idx+1]==key1 && data[idx+2]==key2){
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            public bool IsKeyDown(byte[] data, int idx){ // to be used in main loop (simpler version) v2
-                if (operators==2) { // 2-operator OPL2
-                    if (data[idx]==this.keyon[0] && data[idx+1]==this.keyon[1] && data[idx+2]>0x20) { // * is >0x20 reliable?
-                        return true;
-                    } //else {tb(s);}
-                } else { // 4-operators
-                    if (data[idx]==this.keyon[0] && data[idx+1]==this.keyon[1] && data[idx+2]==this.keyon[2]) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-         // end FMchannel struct
-        }
-
         public class FMregisters {  // for the main loop, emulates what a FM channel's (relevant) commands will be at any specific point
-            public int operators, chip, keyon_idx;
+            public int operators, chip;//, keyon_idx;
             /* a lot of data going on here, an example
-            ex: 0x000102: 57 48 1F  CHANNEL: FM3 (implicit, this class encompasses 1 channel's specific register, no global commands)
-                                    LABEL: TL1 (string - op1_TL = 0x40)
+            ex: 0x000102: 57 48 1F  CHANNEL: FM3 (implicit, this class encompasses 1 channel's registers (channel and all operators), no global commands)
+                                    LABEL: TL2 (string - "TL2" = 0x48) (operator 2's TL)
                                     REG: 48 (byte)
                                     VALUE:1F  (byte)
                                     IDX = 0x102 (int32)
                                     operators = 4 (int32) implicit from SetupData->FMchannel. This is an OPNA example.
-                                    chip = 57 (int32) implicit from SetupData->FMchannel. OPNA/B/2 have two banks of registers - keyons are always in first bank
-                                    KEYON: [0x56, 0x28, 0xF0] - implicit from SetupData->FMchannel. Always 0x56 on OPNA. May end up unused, we'll see.
-                 more data may be added to get a fuller snapshot of the FM patches used
+                                    chip = 57 (int32) implicit from SetupData->FMchannel. OPNA/B/2 have two banks of registers
+                                    // KEYON: [0x56, 0x28, 0xF0] - implicit from SetupData->FMchannel. Always 0x56 on OPNA. May end up unused, we'll see.
+                more data may be added to get a fuller snapshot of the FM patches used
+
+                OUTPUT of this object:
+                1. Hard edits to a few registers, such as OPL vibrato registers (OPL)
+                2. Soft additions to DTML AND TL values, to be applied after all channels have been looped
+                2. Output reference data values to FMarguments.AddLostPatch (<string label, byte value>)
+                3. Output *special* data values to FMarguments.AddLostPatch (<string label, byte value>): 
+                    "P" (patchkey'ed flag) 
+                    "dt1" "dt2" "dt3" "dt4" "mult1" "mult2" "mult3" "mult4" "alg" "wave1" "wave2" "vibrato1" "vibrato2" 
+                    "dt21" "dt22" "dt23" "dt24" "ch3mode"
+                    "OUTDT" "OUTMULT" "OUTVIBRATO" "IDX" "TIMECODE" 
             */
 
             // public readonly byte[] keyon;
-            private FMchannel FMref;
-            private Dictionary<string, byte> LABEL_REG = new Dictionary<string, byte>(); 
-            private Dictionary<byte, string> REG_LABEL = new Dictionary<byte, string>(); 
-            private Dictionary<byte, int> REG_IDX = new Dictionary<byte, int>(); 
-            private Dictionary<byte, byte> REG_VAL = new Dictionary<byte, byte>(); 
+            // private FMchannel FMref;
+            public readonly FMchannel2 FMref;
+            // public Dictionary<string, byte> LABEL_REG = new Dictionary<string, byte>(); // DATA - DATA          just a ref of FMref.REF_LABEL_REG
+            // public Dictionary<byte, string> REG_LABEL = new Dictionary<byte, string>(); // DATA - DATA          (reverse of LABEL_REG)       
+            public Dictionary<byte, int> REG_IDX = new Dictionary<byte, int>(); // DATA - BUFFER
+            public Dictionary<byte, byte> REG_VAL = new Dictionary<byte, byte>(); // DATA - BUFFER
+
+            // LABEL_IDX        - DATA - BUFFER (function)
+            // LABEL_VAL        - DATA - BUFFER (function)
+
             // public Dictionary<string, FMregister> RG = new Dictionary<string, FMregister>(); 
             
-            int lastidx=0; // for print
-            public FMregisters(FMchannel fMchannel) {
+            public int lastidx=0; // for print
+            public FMregisters(FMchannel2 fMchannel) {
                 this.operators = fMchannel.operators;
                 this.chip = fMchannel.chip;
                 // DTML1=0xff; DTML2=0xff; DTML3=0xff; DTML4=0xff;
                 FMref = fMchannel;
-                 // TODO this'd be a whole lot smoother if the data was in dictionaries too
-                this.LABEL_REG.Add("DTML1",fMchannel.op1_DTML); this.LABEL_REG.Add("DTML2",fMchannel.op2_DTML);
-                if (fMchannel.operators > 2) { this.LABEL_REG.Add("DTML3",fMchannel.op3_DTML); this.LABEL_REG.Add("DTML4",fMchannel.op4_DTML); }
 
-                this.LABEL_REG.Add("TL1",fMchannel.op1_TL); this.LABEL_REG.Add("TL2",fMchannel.op2_TL); 
-                if (fMchannel.operators > 2) { this.LABEL_REG.Add("TL3",fMchannel.op3_TL); this.LABEL_REG.Add("TL4",fMchannel.op4_TL); }
+                // this.LABEL_REG = fMchannel.REF_LABEL_REG; // ref, fine?
+                // this.REG_LABEL = fMchannel.REF_REG_LABEL;
 
-                //? I'm disabling the keyons for now. It's incidental to the patch loading process.
-                // this.LABEL_REG.Add("KEYON1", fMchannel.keyon[0]); // always first bank with OPNs (eg 0x56 OPNA)
-                // this.LABEL_REG.Add("KEYON2", fMchannel.keyon[1]); // OPL keyon is channel specific, OPN is always 0x28, OPM is always 0x08.
-                // if (fMchannel.operators==4) {this.LABEL_REG.Add("KEYON3", fMchannel.keyon[2]); } // not for OPL
-
-                this.LABEL_REG.Add(alg,fMchannel.ALG);
-
-                if (operators==2 && chiptype==0x5A || chiptype==0x5E) { // search for wave on OPL2 OPL3 only
-                    this.LABEL_REG.Add("WAVEFORM1", fMchannel.op1_waveform); 
-                    this.LABEL_REG.Add("WAVEFORM2", fMchannel.op2_waveform);
-                }
-
-                REG_LABEL = LABEL_REG.ToDictionary(x => x.Value, x => x.Key); // reverse keys/vals to create REG_LABEL out of LABEL_REG
-                foreach(KeyValuePair<string, byte> LG in LABEL_REG) { // outputs LG.Key, LG.Value (register)
+                foreach(KeyValuePair<string, byte> LG in FMref.REF_LABEL_REG) { // outputs LG.Key, LG.Value (register)
                     this.REG_VAL.Add(LG.Value, 0x00); // Register, init value 0x00
                     this.REG_IDX.Add(LG.Value, 0); // Register, init idx value 0
                 }
+                // PrintDictionary(REG_VAL);
 
-
-
-            }
-
-            public int ParseAndSetValue(byte[] data, int idx) {
-                if (data[idx]==chip) { 
-                    if (REG_VAL.ContainsKey(data[idx+1]) ) { 
-                        REG_VAL[data[idx+1]] = data[idx+2];
-                        REG_IDX[data[idx+1]] = idx;
-                        if (data[idx+1] == LABEL_REG["DTML1"] || data[idx+1] == LABEL_REG["DTML2"]) {
-                            lastidx=idx; return 1;
-                        } else if (operators == 4) {
-                            if (data[idx+1] == LABEL_REG["DTML3"] || data[idx+1] == LABEL_REG["DTML4"]) {
-                                lastidx=idx; return 1;
-                            }
-                        }
-                        //* I'm disabling the keyons for now. It's incidental to the patch loading process.
-                        // if (data[idx]==LABEL_REG["KEYON1"]) { // ex 56. this is just chip / bank 1 of opna/b/etc
-                        //     if (data[idx+1] == LABEL_REG["KEYON2"]) {
-                        //         if (FM0.operators==2) {
-                        //             REG_IDX[data[idx]] = idx; // KEYON1 idx
-                        //             REG_IDX[data[idx+1]] = idx; // KEYON2 idx
-                        //         } else if (data[idx+2] == LABEL_REG["KEYON3"]) {
-                        //             REG_IDX[data[idx]] = idx; // KEYON1 idx
-                        //             REG_IDX[data[idx+1]] = idx; // KEYON2 idx
-                        //             REG_IDX[data[idx+2]] = idx; // KEYON3 idx (OPM / OPN) needs better implimentation, channel detection key on vs off etc
-                        //         }
-                        //     }
-                        //     return 2; // does nothing atm
-                        // }
-                    }
-                }
-                return 0;
             }
             public int LABEL_IDX(string label) { // returns IDX, via REG_IDX & LABEL_REG dictionaries
-                return REG_IDX[LABEL_REG[label]]; 
+                return REG_IDX[FMref.REF_LABEL_REG[label]]; 
             }
             public byte LABEL_VAL(string label) {
-                return REG_VAL[LABEL_REG[label]];
+                return REG_VAL[FMref.REF_LABEL_REG[label]];
             }
-            public string Triggerify(byte[] data, Arguments FMargs, int currentIDX) {
+            // static int lastidx_DTML1, lastidx_DTML2, lastidx_DTML3, lastidx_DTML4; // unused
+            static int muteA=1, muteB=2, muteC=3;
+            public int outop=4;
+            public int currentTLoutOP = 0;
+            public string Triggerify(byte[] data, Arguments FMargs, int currentIDX, int[] timecodes) {
                 string str="";
-                // tb("hello?");
-                //* if any DT (or DT idx) is empty then log & skip. Should only occur with early garbage data...
+                //* Triggerify Part 1 / 4: if any DT (or DT idx) is empty then log & skip. Should only occur with early garbage data...
                 // str=FMref.name+": !WARNING!: 0x"+Convert.ToString(lastidx,16)+": MISSING ";
                 bool warn=false;
-                // tb(REG_LABEL.Count()+" = count REG_LABEL");
-                // tb(REG_VAL.Count()+" = count REG_VAL");
-                // tb(REG_IDX.Count()+" = count REG_IDX");
-                foreach(KeyValuePair<byte, int> RG in REG_IDX) { // outputs LG.Key, LG.Value (register)
-                    // this.REG_VAL.Add(LG.Value, 0x00); // Register, init value 0x00
-                    if (RG.Value==0) {
-                        str+=REG_LABEL[RG.Key]+"=0 "; warn=true;
-                        // return "";
+                // string[] fullpatch = new string[]{"DTML1","DTML2","DTML3","DTML4","TL1","TL2","TL3","TL4"};
+                string[] fullpatch = new string[]{"DTML1","DTML2","DTML3","DTML4"};
+
+                foreach (string p in fullpatch) {
+                    if (LABEL_IDX(p) == 0) {
+                        str+=p+" idx=0(!) "; warn=true;
                     } else {
-                        str+=REG_LABEL[RG.Key]+"="+REG_VAL[RG.Key]+" ";
+                        str+=p+"="+LABEL_IDX(p)+" ";
                     }
                 }
+
                 str+=" ... lag+"+(currentIDX - lastidx)+" bytes";
                 // if (warn) {tb(str); System.Console.ReadKey(); return str;}
                 if (warn) {tb(str); return str;}
+                // tb(str);
                 str="";
 
 
-                // int[] current_values; 
+                // * Triggerify Part 2 / 4: Compare our identified patch with our patch algos or PatchKeys (both come from FMx.Arguments)
+                // *     Set our DT, ML, and Vibrato(OPL) accordingly
                 var datavalues = new Dictionary<string,int>();
                 if (operators==2) { // OPL2 note - AM|PM|KSR|EG / MULT - No Detune with OPL2. Looks like 4 bit 0-F to me, but I've heard it skips some values (OPLL maybe?)
                     if (chiptype==0x5A || chiptype==0x5E) {
@@ -1025,7 +1191,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                     //              xx - L/R (OPM only)
                     //        B0-B3 --xxx--- Feedback level for operator 1 (0-7)
                     //              -----xxx Operator connection algorithm (0-7)
-                    datavalues.Add(alg, Convert.ToInt32(Last3Bit(LABEL_VAL(alg) ) ) );
+                    datavalues.Add(alg, Convert.ToInt32(Last3Bit(LABEL_VAL(FEEDBACK_ALG) ) ) );
                 }
                 int OutDT=99; int OutMult=99; int OutDTalg=99; int OutVibrato=99;//int OutCarrier=null;
 
@@ -1040,27 +1206,57 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                     }
                 } 
 
+                outop=FMargs.forceop;
                 // str += current_values[4]+"-"+current_values[5]+"-"+current_values[6]+"-"+current_values[7]+" / "; // debug, will break with OPL2, remove me
                 // str += current_values[0]+"-"+current_values[1]; // opl2 debug
                 // for (int i = 0; i < current_values.Length; i++) {
                 //     str += current_values[i]+"-";
                 // }
 
-                 //! careful with these LABEL_VAL calls, they're copied from the data (race condition)
-                if (this.operators == 4) {  //* handle DT
+                byte outDTML=0x00;// = data[LABEL_IDX("DTML"+outop)+2];
+                // * Triggerify Part 3 / 4: Make Hard Edits to DTML, edits to TL are added to "appender" to be added after all the channels are done
+                // // careful with these LABEL_VAL calls, they're copied from the initial data and may be outdated (race condition) 
+                if (operators == 4) {  //* handle DT
+                    if (FMargs.forceop==0) { 
+                        outop=FMref.operators; // 4 or 2
+                        if (LastDTMLnmbr != 0) {        // main loop keeps track of last appearing DTML
+                            outop = LastDTMLnmbr;
+                        }  
+                    } else {
+                        outop = FMargs.forceop;
+                    }
+                    if (FMref.operators == 4) { // todo redundant conditional
+                        if (outop == 1) {muteA=2; muteB=3; muteC=4;}
+                        if (outop == 2) {muteA=1; muteB=3; muteC=4;}
+                        if (outop == 3) {muteA=2; muteB=1; muteC=4;}
+                        if (outop == 4) {muteA=2; muteB=3; muteC=1;}
+                    }
+
+                    // if (currentTLoutOP == 0) currentTLoutOP = outop;    //? set initial value
+
                     if (OutDTalg == 99) { OutDTalg=FMargs.detunesetting; } 
                     OutDT = ReturnDesiredDT(datavalues, OutDTalg); //* <--- 'big function' for all DT algorithms
+
                     // byte debug = data[LABEL_IDX("DTML4")+2];
-                    data[LABEL_IDX("DTML4")+2] = FourToEightCoder(Convert.ToByte(OutDT) , Second4Bit(LABEL_VAL("DTML4")) );             //* WRITE DT (4-op only) 
+                    // data[LABEL_IDX("DTML4")+2] = FourToEightCoder(Convert.ToByte(OutDT) , Second4Bit(LABEL_VAL("DTML4")) );             //* WRITE DT (4-op only) old
+                    // data[LABEL_IDX("DTML"+outop)+2] = FourToEightCoder(Convert.ToByte(OutDT) , Second4Bit(LABEL_VAL("DTML"+outop)) );             //* WRITE DT (4-op only) 
+                    outDTML = FourToEightCoder(Convert.ToByte(OutDT), Second4Bit(LABEL_VAL("DTML"+outop)) );                //* SETUP DT FOR WRITE DT (APPEND METHOD v42)
+
                     datavalues["OUTDT"] = OutDT; 
 
                     // tb(FMref.name+": DT 0x"+Convert.ToString(LABEL_IDX("DTML4")+0,16)+
                     // " "+Convert.ToString(debug,16)+" -> "+Convert.ToString(data[LABEL_IDX("DTML4")+2],16)+" val "+Convert.ToString(First4Bit(LABEL_VAL("DTML4")),16) );
                     // Console.ReadKey();
+                } else if (operators==2) {
+                    outop=2; // always use carrier with OPL (?)
+                    if (outop == 1) muteA=2;
+                    if (outop == 2) muteA=1;
+                    outDTML = data[LABEL_IDX("DTML"+outop)+2];                //* SETUP DT FOR WRITE DT (APPEND METHOD v42)
                 }
+
                 if (OutMult == 99) { // if mult is defined in patch key use it, otherwise automatically compensate    -- Handle Mult
                     if (this.operators==2) {
-                        OutMult=HighestCommonFactorINT(new int[] {Second4BitToInt(LABEL_VAL("DTML1")), Second4BitToInt(LABEL_VAL("DTML2") )} ); //! careful
+                        OutMult=HighestCommonFactorINT(new int[] {Second4BitToInt(LABEL_VAL("DTML1")), Second4BitToInt(LABEL_VAL("DTML2") )} ); // no need for careful we're not making hard edits yet
                     } else {
                         OutMult=HighestCommonFactorINT(new int[] {Second4BitToInt(LABEL_VAL("DTML1")),Second4BitToInt(LABEL_VAL("DTML2")),Second4BitToInt(LABEL_VAL("DTML3")),Second4BitToInt(LABEL_VAL("DTML4") )} );
                     } 
@@ -1071,124 +1267,262 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                 // }
                 if (this.operators == 2) {
                     if (OutVibrato != 99) {
-                        data[LABEL_IDX("DTML2")+2] = CodeSecondBit(data[LABEL_IDX("DTML2")+2], Convert.ToByte(OutVibrato));             //* WRITE CARRIER VIBRATO (OPL)
+                        // data[LABEL_IDX("DTML2")+2] = CodeSecondBit(data[LABEL_IDX("DTML2")+2], Convert.ToByte(OutVibrato));             //* WRITE CARRIER VIBRATO (OPL)
+                        outDTML = CodeSecondBit(outDTML, Convert.ToByte(OutVibrato));             //* WRITE CARRIER VIBRATO (OPL)
                         datavalues["OUTVIBRATO"] = OutVibrato;
                     } else {
                         datavalues["OUTVIBRATO"] = datavalues[vibrato2];
                     }
-                    data[LABEL_IDX("DTML2")+2] = FourToEightCoder(First4Bit(data[LABEL_IDX("DTML2")+2]), Convert.ToByte(OutMult) );                //* WRITE MULT
-                    data[LABEL_IDX("TL2")+2] = 12; // set volume OPL2 - first two bits are key scale, 0,1,2= 00, 01, 10. Rest is TL, a 6-bit value of 0-63 (3F = muted)
-                } else {
-                    data[LABEL_IDX("DTML4")+2] = FourToEightCoder(First4Bit(data[LABEL_IDX("DTML4")+2]), Convert.ToByte(OutMult) );                //* WRITE MULT
-                    data[LABEL_IDX("TL4")+2] = 0x80; // set volume. This should be set globally really. 0x80 for debug
+                    // data[LABEL_IDX("DTML2")+2] = FourToEightCoder(First4Bit(data[LABEL_IDX("DTML2")+2]), Convert.ToByte(OutMult) );                //* WRITE MULT
+                    outDTML = FourToEightCoder(First4Bit(outDTML), Convert.ToByte(OutMult) );                //* SETUP MULT FOR WRITE DTML (APPEND METHOD v42)
+                    // data[LABEL_IDX("TL2")+2] = 12; // set volume OPL2 - first two bits are key scale LEVEL, 0,1,2= 00, 01, 10. Rest is TL, a 6-bit value of 0-63 (3F = muted)
+                    Appender.Add(LastDTMLidx, new byte[]{FMref.chip, FMref.REF_LABEL_REG["TL"+outop], 0x00, 
+                                                         FMref.chip, FMref.REF_LABEL_REG["TL"+muteA], 0x3F,
+                                                         FMref.chip, FMref.REF_LABEL_REG["DTML"+outop], outDTML});
+                    // Appender.Add(LastDTMLidx, new byte[]{FMref.chip, FMref.REF_LABEL_REG["TL"+muteA], 0x3F}); //* can't have multiple keys
+                } else {   
+                    // data[LABEL_IDX("DTML"+outop)+2] = FourToEightCoder(First4Bit(data[LABEL_IDX("DTML"+outop)+2]), Convert.ToByte(OutMult) );                //* WRITE MULT
+                    outDTML = FourToEightCoder(First4Bit(outDTML), Convert.ToByte(OutMult) );                //* SETUP MULT FOR WRITE DTML (APPEND METHOD v42)
+                    Appender.Add(LastDTMLidx, new byte[]{FMref.chip, FMref.REF_LABEL_REG["TL"+outop], 0x00, //* WRITE TL (LATER, AFTER AutoTriggers HAVE ALL BEEN RUN)
+                                                         FMref.chip, FMref.REF_LABEL_REG["TL"+muteA], 0x7F,
+                                                         FMref.chip, FMref.REF_LABEL_REG["TL"+muteB], 0x7F,
+                                                         FMref.chip, FMref.REF_LABEL_REG["TL"+muteC], 0x7F,
+                                                         FMref.chip, FMref.REF_LABEL_REG["DTML"+outop], outDTML}); //? this will leave remnant DTML values if op jumps, but that's fine?
                 }
+
+                if (Channel3ModeDetected && FMref.name=="FM2") { // track CH3 extended mode (CSM/Multi-frequency mode)
+                    datavalues["ch3mode"] = SecondBit(LABEL_VAL(TIMER_LOAD_SAVE) ); // main adds this system command TIMER_LOAD_SAVE to Ch2 (CH#3)
+                }
+                if (chiptype==0x54) {   // track DT2 for each operator
+                    datavalues["dt21"] = (byte)(LABEL_VAL(SR_DT2+1) >> 6); // first two bits
+                    datavalues["dt22"] = (byte)(LABEL_VAL(SR_DT2+2) >> 6);
+                    datavalues["dt23"] = (byte)(LABEL_VAL(SR_DT2+3) >> 6);
+                    datavalues["dt24"] = (byte)(LABEL_VAL(SR_DT2+4) >> 6);
+                }
+
+                datavalues["IDX"] = lastidx; // * IDX and TIMECODE are the only integers in this collection, the rest are bytes..
+                datavalues["TIMECODE"] = timecodes[lastidx]; // * ... can this be worked around in an elegant way?
                 
-                // REG_VAL[LABEL_REG["DTML4"]] = data[LABEL_IDX("DTML4")+2]; // update our data?
+                // str+=FMref.name+" Triggerify: Current Pos 0x"+Convert.ToString(currentIDX,16) + " " +SamplesToMinutes(timecodes[currentIDX]) + "\n";
+                // str+="DTML1 0x"+Convert.ToString(LABEL_IDX("DTML1"),16)+" = "+Convert.ToString(LABEL_VAL("DTML1"),16) + "\n";
+                // str+="DTML2 0x"+Convert.ToString(LABEL_IDX("DTML2"),16)+" = "+Convert.ToString(LABEL_VAL("DTML2"),16) + "\n";
+                // str+="DTML3 0x"+Convert.ToString(LABEL_IDX("DTML3"),16)+" = "+Convert.ToString(LABEL_VAL("DTML3"),16) + "\n";
+                // str+="DTML4 0x"+Convert.ToString(LABEL_IDX("DTML4"),16)+" = "+Convert.ToString(LABEL_VAL("DTML4"),16) + "\n";
+                // tb(str);
+                // Console.ReadKey(); 
 
                 // str=FMref.name+": 0x"+Convert.ToString(lastidx,16)+" ... "+str+"--> mult"+Convert.ToByte(OutMult);
                 // if (this.operators==4) str+=" DTout:"+OutDT;
                 // tb(str);
                 // tb(Convert.ToString(data[LABEL_IDX("DTML4")+2],16) + " should be = "+ Convert.ToString(LABEL_VAL("DTML4"),16) );
-                datavalues["IDX"] = lastidx; //* for calculating timecodes later
+                // Console.ReadKey();
+
+                
+                // * Triggerify Part 4 / 4: Output our current found patch to AddLostPatch. AddLostPatch may dispose of it, if it's found to be a dupe
+                // *    dupes are determined using a limited set of values, mostly just the values of DTML
+                if (GlobalArguments.bankexport == 1 && operators==4) {
+                    foreach (var reg_lbl in FMref.REF_REG_LABEL) {
+                        // datavalues[Convert.ToString(reg_val.Key)] = REG_VAL[reg_val.Key]; // "120" = 0x78  ???
+
+                        //* convert REG-VALUE to LABEL-VALUE, using the data2.cs FMchannel data as our reference
+                        // FMref.REF_LABEL_REG and REG_LABEL are derived from FMref.ch, we can use FMin.ch.Op1-op4 to get the operator values
+
+                        // if (REG_LABEL.ContainsKey(reg_val.Key)) {      
+ 
+                        if (FMref.REF_REG_LABEL.ContainsKey(reg_lbl.Key)) {    // check acquired data vs reference data     
+                            // tb("bankexport: Ch cmd found output="+datavalues[FMref.REF_FMref.REF_LABEL_REG]+", 0x_"+ Convert.ToString(REG_VAL[reg_lbl.Key],16));
+                            datavalues[reg_lbl.Value] = REG_VAL[reg_lbl.Key];   // * this will pump ~40+ values through datavalues that otherwise wouldn't be there
+                        }
+
+                    }
+                    
+                }   
                 FMargs.AddLostPatch(datavalues); // lost patch report is cool let's use it all the time
-                return str;
+                return str; // debug text
             }
 
         }
 
+        static int LastDTMLidx = 0; // * auto forceop should choose the latest DTML cmd. Rather than figure this out with a loop we'll just track them as they come in
+        // static string LastDTMLstr = ""; // * auto forceop should choose the latest DTML cmd. Rather than figure this out with a loop we'll just track them as they come in
+        static int LastDTMLnmbr = 0; // * auto forceop should choose the latest DTML cmd. Rather than figure this out with a loop we'll just track them as they come in
+
+        static Dictionary<int, byte[]> Appender = new Dictionary<int, byte[]>(); // v42 append test
+
         //! Main Loop
         //! find DTML values, look 10ms ahead for full patch values, then apply detune and mult 
         //! After that runs: Smash all DR/AR etc, change mute all operators except the last. Do this last so we get a better snapshot of the patches in use
-        static void AutoTrigger(FMchannel FMin, Arguments FMargs, byte[] data, bool[] ByteFlags, bool[] WaitFlags, int StartVGMdata, int EndVGMdata) {
+        static void AutoTrigger(FMchannel2 FMin, Arguments FMargs, byte[] data, bool[] ByteFlags, bool[] WaitFlags, int StartVGMdata, int EndVGMdata, int[] timecodes) {
             
+            //! main loop!
+            // * a brief explanation of what this does
+            // Parse through the vgm data, collecting it as we go (via FMregister object REG_IDX/REG_VAL dictionaries) 
+            // If we find a DT/ML register, search 441 samples (10 ms) ahead to anticipate a full patch
+            // Then launch FMregister.Triggerify: which makes modifications to the patch according to our FMarguments object
+            //      these hard edits are parked into 'Appender' and applied later in the Main() section, so we can safely resize our data buffer (v42)
+            //      the full patch data is sent off via FMarguments.AddLostPatch. This is used for the patch report, and v42+, the .bank export 
+
+            // After Triggerify pass is done, many values are edited (attack rate, algorithm etc). 
+            // These are all per-channel values so they shouldn't taint our data down the line
+            // all TL values are removed (without resizing) by turning them into POKEY writes. Appender will provide all our new TL writes
+
             FMregisters fMregisters = new FMregisters(FMin);
 
-            //! main loop
-            // do parsewaits bool array (timecodes shouldn't be necessary)
-            // when ParseAndSetValue returns an operator DTML, 
-            //     start tracking delay samples
-            //      second conditional counts delays ahead, after threshold (~8ms?) THEN do triggerfy. this will even things out.
-            ////      triggerify should use whatever the biggest index is for carrier? Unless it's OPL2, then always use 2 (just return 1 only on carrier 2?)
-            //      ^^ nah this wont work for ML sweeps because TL values won't update with DT/ML, so old sections of music will get muted. unimplemented for now.
-            //? when ParseAndSetValue returns an f-num command, do the same but modify f-num for more granular detune? (OPN / OPM - unimplimented) 
-            //?     DT is applied directly to phase, so a formula is needed to match it accurately with f-num (unimplimented)
-
             int LagThreshold = 441; // after a DT value is found, look ahead this many samples before Triggerify (441 = 10ms)
-            bool BeginDelay=false; // start delay bool, Compensates for driver+hardware delay before values take effect
+            bool BeginDelay=false; // start lag
             int Lag = 0; // in samples, via parsewaits
 
+
+            // tb("fmregisters count "+fMregisters.REG_VAL.Count());
+            LastDTMLidx=0;
+            LastDTMLnmbr=0;
+            
+            for (int i = StartVGMdata; i < EndVGMdata; i++) {       // find our channel's first DT/ML reg writes and start all initial TLs as muted there
+                if (ByteFlags[i] && data[i]==fMregisters.chip) {    // Appender does it's work later after the loops have finished, so we can resize our data safely
+                    if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML1"] || data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML2"]) {
+                        if (FMin.operators==4) {
+                            Appender.Add(i, new byte[]{FMin.chip, FMin.REF_LABEL_REG["TL1"], 0x7f,
+                                                       FMin.chip, FMin.REF_LABEL_REG["TL2"], 0x7f,
+                                                       FMin.chip, FMin.REF_LABEL_REG["TL3"], 0x7f,
+                                                       FMin.chip, FMin.REF_LABEL_REG["TL4"], 0x7f});
+                        } else if (FMin.operators==2) {
+                            Appender.Add(i, new byte[]{FMin.chip, FMin.REF_LABEL_REG["TL1"], 0x3F,
+                                                       FMin.chip, FMin.REF_LABEL_REG["TL2"], 0x3F});
+                        }
+                        break;
+                    }
+                } 
+            }
+
             for (int i = StartVGMdata; i < EndVGMdata; i++) {
-                if (ByteFlags[i] && fMregisters.ParseAndSetValue(data, i) == 1) { // return 1 for DT, return 2 for KEYON?
-                    if (!BeginDelay) {Lag = 0; BeginDelay=true; }
+                if (ByteFlags[i] && data[i]==fMregisters.chip) // data is structured in 3 bytes: [chip][reg][value]   [chip]=ByteFlags true
+                { 
+                    if (fMregisters.REG_VAL.ContainsKey(data[i+1]) ) { //* REG_VAL will begin with all necessary keys for patchkey
+                        fMregisters.REG_IDX[data[i+1]] = i; //? REG_IDX isn't doing as much as it used to. Remove for simplicity? (instead use LastDTMLidx?)
+                        fMregisters.REG_VAL[data[i+1]] = data[i+2];
+                        // tb("0x"+Convert.ToString(i,16) + " added reg "+Convert.ToString(data[+1],16));
+                        // fMregisters.REG_VAL.
+                    } else { // * add other registers. This is only necessary for .bank output
+                        fMregisters.REG_VAL.Add(data[i+1], data[i+2]);
+                        fMregisters.REG_IDX.Add(data[i+1], i);          
+                    }
+                    // tb("looking for "+Convert.ToString(fMregisters.FMref.REF_LABEL_REG["DTML1"],16) +" "+Convert.ToString(fMregisters.FMref.REF_LABEL_REG["DTML2"],16) +" "
+                    // +Convert.ToString(fMregisters.FMref.REF_LABEL_REG["DTML3"],16) +" "+Convert.ToString(fMregisters.FMref.REF_LABEL_REG["DTML4"],16) +" ");
+                    if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML1"]) { //* FMref via data2.cs
+                        fMregisters.lastidx = i;
+                        Lag = 0; BeginDelay=true; // tb("0x"+Convert.ToString(i,16) + " dt1");
+                        LastDTMLidx = i; LastDTMLnmbr = 1;
+                    }
+                    if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML2"]) {
+                        fMregisters.lastidx = i;
+                        Lag = 0; BeginDelay=true; // tb("0x"+Convert.ToString(i,16) + " dt2");
+                        LastDTMLidx = i; LastDTMLnmbr = 2;
+                    } else if (fMregisters.operators == 4) {
+                        if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML3"]) {
+                            fMregisters.lastidx = i;
+                            Lag = 0; BeginDelay=true; // tb("0x"+Convert.ToString(i,16) + " dt3");
+                            LastDTMLidx = i; LastDTMLnmbr = 3;
+                        }
+                        if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML4"]) {
+                            fMregisters.lastidx = i;
+                            Lag = 0; BeginDelay=true; // tb("0x"+Convert.ToString(i,16) + " dt4");
+                            LastDTMLidx = i; LastDTMLnmbr = 4;
+                        }
+                    }
+
                 }
                 if (BeginDelay && WaitFlags[i]) {
                     Lag += ParseWaits(data,i,WaitFlags);
                     if (Lag >= LagThreshold) {
-                        showprogress = fMregisters.Triggerify(data,FMargs,i); // hard edit happens here
+                        // showprogress = fMregisters.Triggerify(data,FMargs,i, timecodes); // hard edit happens here
+                        fMregisters.Triggerify(data,FMargs,i, timecodes); // hard edit happens here
                         Lag=0; BeginDelay=false;
                     }
                 }
             }
 
 
+
             //* Pt.B: Global changes (smashing feedback, decay, muting operators, etc). Do this last so we get a more accurate snapshot of data
-            byte outvolume = 0x0A; //hardcode carrier out level
+            for (int i = StartVGMdata; i < EndVGMdata; i++) {   // * kill all TLs (v42 append test). Append will add them all back after all channels are looped through
+                // if (i >= 0xc471 && i < 0xc4da) { // debugging
+                //     tb(FMin.name+": 0x0000"+Convert.ToString(i,16) +" "+ ByteFlags[i]);
+                // }
+                if (ByteFlags[i] && data[i]==FMin.chip) {
 
+                    if (data[i+1]==FMin.REF_LABEL_REG["TL1"] || data[i+1]==FMin.REF_LABEL_REG["TL2"]
+                    || data[i+1]==FMin.REF_LABEL_REG["DTML1"] || data[i+1]==FMin.REF_LABEL_REG["DTML2"]) {
+                        PokeyMe(data,i);
+                    }
+                    if (FMin.operators==4) {
+                        if (data[i+1]==FMin.REF_LABEL_REG["TL3"] || data[i+1]==FMin.REF_LABEL_REG["TL4"]
+                        || data[i+1]==FMin.REF_LABEL_REG["DTML3"] || data[i+1]==FMin.REF_LABEL_REG["DTML4"]) {
+                            PokeyMe(data,i);
+                        }
+                    }
+                }
+
+            }
+            // tb("looking for "+Convert.ToString(FMin.op1_TL,16)+" "+Convert.ToString(FMin.op2_TL,16)+" "
+            // +Convert.ToString(FMin.op3_TL,16)+" "+Convert.ToString(FMin.op4_TL,16)+" ");
+            // tb("c48c="+Convert.ToString(data[0xc48c],16)+" "+Convert.ToString(data[0xc48d],16));
+            // Console.ReadKey();
+
+            // if (FMin.chip == 0x54) { // TODO mono output?
+            //     FindAndReplaceFirstTwoBits(FMin.chip, FMin.REF_LABEL_REG[FEEDBACK_ALG], 0b00000011, data, ByteFlags, StartVGMdata, EndVGMdata);
+
+            // } else if (FMin.chip == 0x52 || FMin.chip == 0x56 || FMin.chip == 0x58) {
+            //     FindAndReplaceFirstTwoBits(FMin.chip, FMin.REF_LABEL_REG[LFO_CHANNEL_SENSITIVITY], 0xff, data, ByteFlags, StartVGMdata, EndVGMdata);
+            // }
+
+
+
+            // * Channel Wide Changes - Feedback / Alg / LFO stuff
             if (FMin.operators==2){ // *smash feedback & algorithm (alg 4?)
-                FindAndkillFirstBit_2Reg(FMin.chip, FMin.op1_DTML, FMin.op2_DTML, data, ByteFlags, StartVGMdata, EndVGMdata); // kill "AM" vibrato
-                FindAndReplaceSecond4Bit(FMin.chip, FMin.ALG, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata); // "connect" / feedback. -- ?
-                // FindAndReplaceByte(FMin.chip, FMin.ALG, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata); // OPL2 FM 1 / Feedback 0   -- either should be fine?
+                FindAndkillFirstBit_2Reg(FMin.chip, FMin.REF_LABEL_REG["DTML1"], FMin.REF_LABEL_REG["DTML2"], data, ByteFlags, StartVGMdata, EndVGMdata); // XXXXYYYY AM enable / PM enable / EG type / KSR - MULT ---- we kill "AM" vibrato
+                FindAndReplaceSecond4Bit(FMin.chip, FMin.REF_LABEL_REG[FEEDBACK_ALG], 0x00, data, ByteFlags, StartVGMdata, EndVGMdata); // OPL - XXXXYYYZ - CHD/CHC/CHB/CHA output (OPL3 only) / Feedback / ALG
             } else if (FMin.chip==0x54) {  
-                FindAndReplaceByte(FMin.chip, FMin.ALG, 0xC4, data, ByteFlags, StartVGMdata, EndVGMdata);    // On OPM the first 2 bits are for stereo. 00 will mute!
-                // FindAndReplaceByte(FMin.chip, FMin.ALG, 0xC7, data, ByteFlags, StartVGMdata, EndVGMdata);    // On OPM the first 2 bits are for stereo. 00 will mute!
+                FindAndReplaceByte(FMin.chip, FMin.REF_LABEL_REG[FEEDBACK_ALG], 0xC7, data, ByteFlags, StartVGMdata, EndVGMdata);    // On OPM the first 2 bits are for stereo. 00 will mute!
             } else {                                                                    
-                FindAndReplaceByte(FMin.chip, FMin.ALG, 0x04, data, ByteFlags, StartVGMdata, EndVGMdata); // Feedback/alg to 0/4
-                // FindAndReplaceByte(FMin.chip, FMin.ALG, 0x07, data, ByteFlags, StartVGMdata, EndVGMdata); // Feedback/alg to 0/7
-            }
-
-            foreach (byte b in FMin.AR){ //* smash Attack, Decay, Release
-                if (FMin.operators == 2) {
-                    FindAndReplaceByte(FMin.chip, b, 0xF0, data, ByteFlags, StartVGMdata, EndVGMdata);   // OPL2: Attack F / Decay 0
-                } else {
-                    FindAndReplaceByte(FMin.chip, b, 0x1F, data, ByteFlags, StartVGMdata, EndVGMdata);   // smash Attack to 1F
+                FindAndReplaceByte(FMin.chip, FMin.REF_LABEL_REG[FEEDBACK_ALG], 0x07, data, ByteFlags, StartVGMdata, EndVGMdata); // Feedback/alg to 0/7
+                if (chiptype != 0x55) { // if not YM2203,
+                    FindAndReplaceFirstTwoBits(FMin.chip, FMin.REF_LABEL_REG[LFO_CHANNEL_SENSITIVITY], 0b00000011, data, ByteFlags, StartVGMdata, EndVGMdata); // mono OPNA
                 }
             }
-            foreach (byte b in FMin.DR){
-                    FindAndReplaceByte(FMin.chip, b, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata);   // smash Decay - if <= threshold 1f (F is max)
+
+            // * Operator Wide changes vv
+            var opswap = new Dictionary<string, byte>();
+            if (FMin.operators == 2) { // OPL
+                opswap[AR_DR_OPL] = 0xF0;
+                opswap[SL_RR] = 0x00;
+                opswap[WAVEFORM] = 0x00; // -----XXX OPL3, ------XX OPL2
+            } else { // OPM / OPN
+                opswap[AR_KSR] = 0b00011111; // XX-YYYYY KSR-AR OPM/OPN ONLY        aka 1f
+                opswap[DR_LFO_AM_ENABLE] = 0x00; // X--YYYYY LFO AM Enable / Decay Rate
+                opswap[SR_DT2] = 0x00; // XX-YYYYY DT2 / SR
+                opswap[SL_RR] = 0x00; // XX-YYYYY DT2 / SR
+                opswap[SSGEG_ENABLE_ENVELOPE] = 0x00; // ----XYYY SSG-EG enable / SSG-EG envelope (0-7) OPN series only
+                opswap[WAVEFORM] = 0x00; // XXX---- OPZ...   ym2414 only 
             }
-            if (FMin.operators==4){ // SR, but not for OPL
-                if (FMin.chip == 54) { // OPM
-                    foreach (byte b in FMin.SR){ // OPM SR might be a 2/6 split?
-                        FindAndReplaceSecond6Bit(FMin.chip, b, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata);
+
+            var ops = FMin.Ops(); // returns all FM operators data info (2 for OPL, 4 for OPM/N). This data is in string/byte form
+            for (int i = StartVGMdata; i < EndVGMdata; i++) {
+                if (ByteFlags[i] && data[i]==FMin.chip) {       // byte 1 (chip / bank, determined by channel)
+                    foreach (Dictionary<string,byte> op in ops) { // for each operator...
+                        // op <label, register>
+                        // opswap <label, desired value> -> needs to become register, desired value
+                        foreach (var label_value in opswap) {            // 
+                            if (op.ContainsKey(label_value.Key) ) {       // if register name (label) is present...
+                                if (data[i+1] == op[label_value.Key]) {   // op's value is equal to data...   // byte 2, register
+                                    data[i+2] = label_value.Value;           //* byte 3, value (modifiy)
+                                }
+                            }
+                        }
                     }
-                } else { // OPNs
-                    foreach (byte b in FMin.SR){ // full byte for OPNs
-                        FindAndReplaceByte(FMin.chip, b, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata);
-                    }
+
                 }
+
             }
-            foreach (byte b in FMin.RR){
-                    // FindAndReplaceByte(FMin.chip, b, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata, 0x1f);   // smash Release
-                    FindAndReplaceByte(FMin.chip, b, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata);   // smash Release
-            }
-
-            if (FMin.operators==2) { //* smash TL and some other values
-                FindAndReplaceSecond4Bit(FMin.chip, FMin.op1_waveform, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata); // waveform op1 to sine
-                FindAndReplaceSecond4Bit(FMin.chip, FMin.op2_waveform, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata); // waveform op2 to sine
-                // mute modulator (3f = 64 = muted)
-                FindAndReplaceSecond6Bit(FMin.chip, FMin.op1_TL, 0x3F, data, ByteFlags, StartVGMdata, EndVGMdata); // Key Scaling(2bit)/TL(6bit).
-                FindAndReplaceSecond6Bit(FMin.chip, FMin.op2_TL, 0x00, data, ByteFlags, StartVGMdata, EndVGMdata); // Key Scaling(2bit)/TL(6bit).
-
-                // FindAndkillFirstTwoBits(FMin.chip, FMin.op1_DTML, 0b00000000, data, ByteFlags, StartVGMdata, EndVGMdata); // binary input does nothing set AM and Vibrato to 0 (?)
-
-            } else if (FMin.operators==4) {
-                FindAndReplaceByte(FMin.chip, FMin.op1_TL, 0x7f, data, ByteFlags, StartVGMdata, EndVGMdata); // mute TL
-                FindAndReplaceByte(FMin.chip, FMin.op2_TL, 0x7f, data, ByteFlags, StartVGMdata, EndVGMdata); // mute TL
-                FindAndReplaceByte(FMin.chip, FMin.op3_TL, 0x7f, data, ByteFlags, StartVGMdata, EndVGMdata); // mute TL
-                FindAndReplaceByte(FMin.chip, FMin.op4_TL, outvolume, data, ByteFlags, StartVGMdata, EndVGMdata); // unmute carrier 4
-            }
-
-
 
             // tb(showprogress);
             // if (FMargs.LookForPatchKeys){
@@ -1200,7 +1534,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
         static int ParseWaits(byte[] data, int idx, bool[] WaitFlags){ // just return delay of current byte, in samples
             if (WaitFlags[idx]){ // 'wait' commands should be flagged ahead of time by this bool array
                 switch (data[idx]){
-                    case 0x61: return BitConverter.ToInt16(data, idx+1);   // three-byte wait
+                    case 0x61: return BitConverter.ToUInt16(data, idx+1);   // three-byte wait  bugfix 2022-02-22. needs to be UINT not int...
                     case 0x62: return 735; // wait 735 samples (60th of a second)
                     case 0x63: return 882; // wait 882 samples (50th of a second)
                     case byte n when (n >= 0x70 && n <= 0x7F): // 1-byte waits
@@ -1211,6 +1545,25 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
             }
             return 0;
         }
+
+        static int ParseWaits2(byte[] data, ref int idx, bool[] WaitFlags){ //* will iterate index by 2 if 3-byte wait is found. Must-use for loops
+            if (WaitFlags[idx]){ // 'wait' commands should be flagged ahead of time by this bool array
+                switch (data[idx]){
+                    case 0x61: idx+=2; return BitConverter.ToUInt16(data, idx+1);   // three-byte wait  bugfix 2022-02-22. needs to be UINT not int...
+                    case 0x62: return 735; // wait 735 samples (60th of a second)
+                    case 0x63: return 882; // wait 882 samples (50th of a second)
+                    case byte n when (n >= 0x70 && n <= 0x7F): // 1-byte waits
+                        return Second4BitToInt(data[idx])+1; // 1-16
+                    case byte n when (n >= 0x80 && n <= 0x8F):  // OPN2 sample write & wait
+                        return Second4BitToInt(data[idx]); // 0-15
+                }
+            }
+            return 0;
+        }
+
+
+
+
 
         static int ReturnDesiredDT(Dictionary<string,int> values, int DesiredDTalg) {
             var LUT = new Dictionary<int, int>(); //DT lut
@@ -1274,15 +1627,15 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
         }
 
 
-        public static string showprogress="", lastprogress=""; //* timer is nonfunctional atm
-        public static Timer? ProgressTimer; // why is this non nullable
-        public static void UpdateProgress(Object source, System.Timers.ElapsedEventArgs e){
-            // Console.WriteLine("Raised: {0}", e.SignalTime);
-            if (showprogress != lastprogress){ // quick and dirty
-                tb(showprogress);
-            }
-            lastprogress = showprogress;
-        }
+        // public static string showprogress="", lastprogress=""; //* timer is nonfunctional atm
+        // public static Timer? ProgressTimer; // why is this non nullable
+        // public static void UpdateProgress(Object source, System.Timers.ElapsedEventArgs e){
+        //     // Console.WriteLine("Raised: {0}", e.SignalTime);
+        //     if (showprogress != lastprogress){ // quick and dirty
+        //         tb(showprogress);
+        //     }
+        //     lastprogress = showprogress;
+        // }
 
 
         #region Bitwise function jungle
@@ -1394,6 +1747,23 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
                     }
                 }
         }
+
+        static void FindAndReplaceFirstTwoBits(byte xa, byte xb, byte insertbit, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){
+            // string s=""; // debug / printing
+            for (int i = startVGMdata; i < endVGMdata; i++){
+                if (byteflag[i] && data[i]==xa && data[i+1]==xb) {
+                    // s+="FindAndReplaceSecondBit: "+GetBinary(data[i+2])+" ->\n";
+                    // data[i+2] = CodeSecondBit(data[i+2], insertbit);
+                    data[i+2] = TwoToSixCoder(insertbit, data[i+2]);
+                    
+                    // s+="FindAndReplaceSecondBit: "+GetBinary(data[i+2])+"\n";
+                }
+            }
+            // tb(s); Console.ReadKey();
+        }
+
+
+
         static void FindAndkillFirstTwoBits(byte xa, byte xb, byte byt, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){
             //string s="FindAndReplaceFirstTwoBits:0b"+GetBinary(byt)+"\n"; // debug / printing
             for (int i = startVGMdata; i < endVGMdata; i++){
@@ -1525,18 +1895,74 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
         // in - blank int array sized to the VGM
         // out - every array index filled with a integer timecode (in samples). 
         //     - Header and EOF will be filled with 0s (not really irrelevant)
+        // static int looppointIDX = 0;
+        // static int LoopSamples = 0;
+        static int ReadLoops(out int samples_to_loop, out int samples_from_loop, int looppoint_header, byte[] data, bool[] WaitFlags, int startVGMdata, int endVGMdata) {    // out LooppointIDX
+            int samples=0;
+
+            // looking for: 
+            //      looppointIDX: index of loop point based on data offsets
+            //      LoopSamples: Duration of loop. From loop point index to endVGMdata (0x66, tag section, or straight up EoF)
+            // int looppoint_header = BitConverter.ToInt32(data, 0x1C) - 28; // example
+            samples_to_loop=0;  // from start to loop point
+            samples_from_loop=0; // from loop point to end
+            int lp_idx=0;
+            for (int i = startVGMdata; i < endVGMdata; i++){
+                if (i >= looppoint_header) {
+                    samples_to_loop=samples;
+                    lp_idx=i;
+                    break;
+                }
+                samples+=ParseWaits2(data, ref i, WaitFlags);
+            }
+            // int tmp=0;
+            for (int i = looppoint_header; i < endVGMdata; i++) { // From loop point index to endVGMdata (0x66, tag section, or straight up EoF)
+                samples_from_loop+=ParseWaits2(data, ref i, WaitFlags);
+            }
+            // samples+=samples_from_loop; // debug?
+            // LoopSamples = samples_from_loop;
+            return lp_idx;
+        }
+        static int FindLoopPoint(int samples_to_loop, byte[] data, bool[] WaitFlags, int startVGMdata, int endVGMdata) {    // out LooppointIDX
+            int samples=0;
+            int lp_idx=0;
+            for (int i = startVGMdata; i < endVGMdata; i++){
+                if (samples >= samples_to_loop) {
+                    lp_idx=i;
+                    break;
+                }
+                samples+=ParseWaits2(data, ref i, WaitFlags); // will iterate index by 2 if 3-byte wait is found
+            }
+            tb("FindLoopPoint:"+lp_idx);
+            return lp_idx;
+        }
+
         static int[] CreateTimeCode(int[] timecodes, byte[] data, bool[] WaitFlags, int startVGMdata, int endVGMdata){ // waitflags should be true if first byte is a wait command
             
             for (int i = 0; i < startVGMdata; i++) {timecodes[i]=0;}                // write 0 to header section
             for (int i = endVGMdata; i < timecodes.Length; i++) {timecodes[i]=0;}   // write 0 to EOF (tags and such live here)
 
+            // int lp = BitConverter.ToInt32(data, 0x1C) - 28;
+            // bool lpfound=false;
+
+
+            // int tmp = ParseWaits(data,0xCB6D,WaitFlags);
+            // tb("0xCB6D = "+WaitFlags[0xCB62] + " 0x"+Convert.ToString(data[0xCB6D],16) + " adds smples="+tmp);
+            // tb("0xCB6D = "+WaitFlags[52077] + " 0x"+Convert.ToString(data[52077],16) + " adds smples="+tmp);
+            // // tb("0xCB98 = "+WaitFlags[0xCB98]);
+            // Console.ReadKey();
+
             int samples=0;
+            // int last=0; // * debug
             for (int i = startVGMdata; i < endVGMdata; i++){
-                samples+=ParseWaits(data, i, WaitFlags);
+                samples+=ParseWaits(data, i, WaitFlags); //* this has a slight issue, if wait is >1 byte this will be wrong
                 timecodes[i]=samples;
-                if (samples > 0){
-                    // tb("CreateTimeCode: 0x"+i+": "+samples + " ms:"+ SamplesToMS(samples));
-                }
+
+
+
+
+
+
             }
             return timecodes;
         }
@@ -1610,7 +2036,6 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
 
         static string PrintPatch(Dictionary<string,int> patch, int operators) { // can take DATA or PATCHKEY
             string s="";
-            // if (FM0.operators==4)  // todo REMOVE OPERATORS ARG
             if (operators==4) {
                 // 4op: mults / detune   commands - alg, desiredDTalg, desiredMult
                 s+=patch[mult1]+"-"+patch[mult2]+"-"+patch[mult3]+"-"+patch[mult4]+" / "+patch[dt1]+"-"+patch[dt2]+"-"+patch[dt3]+"-"+patch[dt4];
@@ -1630,7 +2055,7 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
 
         static Dictionary<string,int> SanitizePatchKey(Dictionary<string,int> input) { // strip out irrelevant data for data -> patchkey process. Not used.
             string[] desiredkeys;
-            if (FM0.operators==4) {
+            if (operators==4) {
                 desiredkeys = new string[] {mult1, mult2, mult3, mult4, dt1, dt2, dt3, dt4, alg};
             } else {
                 desiredkeys = new string[] {wave1, wave2, alg, vibrato1, vibrato2, mult1, mult2};
@@ -1688,21 +2113,133 @@ Example: invgm.VGM dt 0 fm0 dt 2 fm3 dt 11 FILE.VGM <- additionally, set channel
         #endregion
 
         static void debugstart() {
-            int debug = 0;
-            if (debug < 1) return;
+            // bool debug = true;
+            bool debug = false;
+            if (!debug) return;
 
-            // code goes here
 
+            Console.ReadKey();
 
         }
         
+        static int AppenderCount(Dictionary<int, byte[]> appender) {
+            int c=0;
+            foreach (var kv in appender) {
+                c+=kv.Value.Count();
+            }
+            return c;
+        }
+
+        // static byte[] RemovePokeysToThresh(byte[] data, byte[] byteflags,){ // dumb idea
+
+        // }
+
+        static byte[] AppendData(byte[] data, Dictionary<int, byte[]> append) { // assumes 3 bytes in dict
+
+            List<byte> datalist = new List<byte>(data); //? can this be improved? having to convert from array to list to array
+            foreach (var cmd in append.OrderByDescending(x => x.Key)) {
+                // datalist.Insert(cmd.Key, cmd.Value);
+                datalist.InsertRange(cmd.Key, cmd.Value);
+
+            }
+            return datalist.ToArray<byte>();    // Maybe always have data in list form?
+        }
+        // static byte[] AppendData(byte[] data, Lookup<int, byte[]> append) { // assumes 3 bytes in lookup
+
+        //     List<byte> datalist = new List<byte>(data); //? can this be improved? having to convert from array to list to array
+        //     foreach (var cmd in append.OrderByDescending(x => x.Key)) {
+        //         // datalist.Insert(cmd.Key, cmd.Value);
+        //         datalist.InsertRange(cmd.Key, cmd.);
+
+        //     }
+        //     return datalist.ToArray<byte>();    // Maybe always have data in list form?
+        // }
+
+
+        static void PrintDictionary(Dictionary<string,int> d) {
+            foreach (var kv in d) {
+                tb(kv.Key+" "+kv.Value);
+            }
+        }
+        static void PrintDictionary(Dictionary<byte,byte> d) {
+            foreach (var kv in d) {
+                tb(kv.Key+" "+kv.Value);
+            }
+        }
+
+        static void PokeyMe(byte[] data, int pos){
+            data[pos] = 0xBB;
+            data[pos+1] = 0x00;
+            data[pos+2] = 0x00;
+        }
+
+
+	// compute the keycode: block_freq is:
+	//
+	//     BBBFFFFFFFFFFF
+	//     ^^^^???
+	//
+	// the 5-bit keycode uses the top 4 bits plus a magic formula
+	// for the final bit
+
+    static int ProcessBlockFreq(byte High, byte Low) {
+        // int value=High;
+        // string tmp = "0x"+Convert.ToString(High,16)+Convert.ToString(Low,16);
+        // tb(tmp);
+        // return Convert.ToInt32(tmp);
+        // int h=High;
+        // tb(""+h);
+        // h*=256;
+        // return h+Low;
+
+        return (int)(High*256)+Low;
+
+    }
+
+	// int keycode = bitfield(block_freq, 10, 4) << 1;
+
+	// lowest bit is determined by a mix of next lower FNUM bits
+	// according to this equation from the YM2608 manual:
+	//
+	//   (F11 & (F10 | F9 | F8)) | (!F11 & F10 & F9 & F8)
+	//
+	// for speed, we just look it up in a 16-bit constant
+	// keycode |= bitfield(0xfe80, bitfield(block_freq, 7, 4));
+// 
+	// detune adjustment
+	// cache.detune = detune_adjustment(op_detune(opoffs), keycode);
+// 
+
+    //-------------------------------------------------
+    //  detune_adjustment - given a 5-bit key code
+    //  value and a 3-bit detune parameter, return a
+    //  6-bit signed phase displacement; this table
+    //  has been verified against Nuked's equations,
+    //  but the equations are rather complicated, so
+    //  we'll keep the simplicity of the table
+    //-------------------------------------------------
+
+    static int detune_adjustment(int detune, int keycode)
+    {
+        int[,] s_detune_adjustment = new int[32, 4]
+        {
+            { 0,  0,  1,  2 },  { 0,  0,  1,  2 },  { 0,  0,  1,  2 },  { 0,  0,  1,  2 },
+            { 0,  1,  2,  2 },  { 0,  1,  2,  3 },  { 0,  1,  2,  3 },  { 0,  1,  2,  3 },
+            { 0,  1,  2,  4 },  { 0,  1,  3,  4 },  { 0,  1,  3,  4 },  { 0,  1,  3,  5 },
+            { 0,  2,  4,  5 },  { 0,  2,  4,  6 },  { 0,  2,  4,  6 },  { 0,  2,  5,  7 },
+            { 0,  2,  5,  8 },  { 0,  3,  6,  8 },  { 0,  3,  6,  9 },  { 0,  3,  7, 10 },
+            { 0,  4,  8, 11 },  { 0,  4,  8, 12 },  { 0,  4,  9, 13 },  { 0,  5, 10, 14 },
+            { 0,  5, 11, 16 },  { 0,  6, 12, 17 },  { 0,  6, 13, 19 },  { 0,  7, 14, 20 },
+            { 0,  8, 16, 22 },  { 0,  8, 16, 22 },  { 0,  8, 16, 22 },  { 0,  8, 16, 22 }
+        };
+        int result = s_detune_adjustment[keycode, detune & 3];
+        // return bitfield(detune, 2) ? -result : result;
+        return result;
+    }
 
 
 
-
-
-
-
+static int[,] array2Da = new int[4, 2] { { 1, 2 }, { 3, 4 }, { 5, 6 }, { 7, 8 } };
 
 
 
