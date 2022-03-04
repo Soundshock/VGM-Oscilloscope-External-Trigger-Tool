@@ -881,60 +881,60 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             }
 
             public bool DataMatchesPatchKeys(Dictionary<string,int> InputData, ref Dictionary<string,int> OutputData) { // If match, returns OutputData & True (like TryParse)
-            OutputData = new Dictionary<string,int>(); // this should come in from argument list
-            string[] requiredkeys, optionalkeys;
-            requiredkeys = new string[] {mult1, mult2, mult3, mult4, dt1, dt2, dt3, dt4};
-            optionalkeys = new string[] {alg};
-            if (operators==2) {
-                requiredkeys = new string[] {wave1, wave2, mult1, mult2};
-                optionalkeys = new string[] {alg, vibrato1, vibrato2};
-            }
-
-            string[] v = requiredkeys.Concat(optionalkeys).ToArray();   // check to make sure data is complete
-            foreach (string k in v) {
-                if (!InputData.ContainsKey(k)) {
-                    tb("PatchKey: Warning! INPUT DATA incomplete @ 0x"+"something"+", missing "+k);
-                    return false;
+                OutputData = new Dictionary<string,int>(); // this should come in from argument list
+                string[] requiredkeys, optionalkeys;
+                requiredkeys = new string[] {mult1, mult2, mult3, mult4, dt1, dt2, dt3, dt4};
+                optionalkeys = new string[] {alg};
+                if (operators==2) {
+                    requiredkeys = new string[] {wave1, wave2, mult1, mult2};
+                    optionalkeys = new string[] {alg, vibrato1, vibrato2};
                 }
-            }
 
-            foreach (Dictionary<string,int> patch in PatchKeys2) {
-                bool match=true;
-                foreach (string k in requiredkeys) {    // first, check data against required keys
-                    if (!match) {break;}
-                    if (InputData[k] != patch[k]) { 
-                        match = false; break;
+                string[] v = requiredkeys.Concat(optionalkeys).ToArray();   // check to make sure data is complete
+                foreach (string k in v) {
+                    if (!InputData.ContainsKey(k)) {
+                        tb("PatchKey: Warning! INPUT DATA incomplete @ 0x"+"something"+", missing "+k);
+                        return false;
                     }
                 }
-                foreach (string ko in optionalkeys) { // next, check optional keys
-                    if (!match) {break;}
-                    if (patch.ContainsKey(ko)) {
-                        if (InputData[ko] != patch[ko]) { 
+
+                foreach (Dictionary<string,int> patch in PatchKeys2) {
+                    bool match=true;
+                    foreach (string k in requiredkeys) {    // first, check data against required keys
+                        if (!match) {break;}
+                        if (InputData[k] != patch[k]) { 
                             match = false; break;
                         }
                     }
-                } 
-                if (match) {
-                    if (patch.ContainsKey(desiredDTalg)) { OutputData[desiredDTalg] = Convert.ToByte(patch[desiredDTalg]); }
-                    if (patch.ContainsKey(desiredMult)) { OutputData[desiredMult] = Convert.ToByte(patch[desiredMult]); }
-                    if (patch.ContainsKey(desiredForceOp)) { OutputData[desiredForceOp] = patch[desiredForceOp]; } // v05
-                    if (operators==2 && patch.ContainsKey(desiredVibrato)) { OutputData[desiredVibrato] = Convert.ToByte(patch[desiredVibrato]); }
-                    return true;
-                } else {
-                    // AddLostPatch(SanitizePatchKey(InputData) ); // strips out keys like DTML1 or KeyOn or whatever for easier compare
-                    // AddLostPatch(InputData); // above is unnecessary in implementation
-                    //* changing this to ALWAYS add lost patch
+                    foreach (string ko in optionalkeys) { // next, check optional keys
+                        if (!match) {break;}
+                        if (patch.ContainsKey(ko)) {
+                            if (InputData[ko] != patch[ko]) { 
+                                match = false; break;
+                            }
+                        }
+                    } 
+                    if (match) {
+                        if (patch.ContainsKey(desiredDTalg)) { OutputData[desiredDTalg] = Convert.ToByte(patch[desiredDTalg]); }
+                        if (patch.ContainsKey(desiredMult)) { OutputData[desiredMult] = Convert.ToByte(patch[desiredMult]); }
+                        if (patch.ContainsKey(desiredForceOp)) { OutputData[desiredForceOp] = patch[desiredForceOp]; } // v05
+                        if (operators==2 && patch.ContainsKey(desiredVibrato)) { OutputData[desiredVibrato] = Convert.ToByte(patch[desiredVibrato]); }
+                        return true;
+                    } else {
+                        // AddLostPatch(SanitizePatchKey(InputData) ); // strips out keys like DTML1 or KeyOn or whatever for easier compare
+                        // AddLostPatch(InputData); // above is unnecessary in implementation
+                        //* changing this to ALWAYS add lost patch
+                    }
                 }
-            }
-            // string s="";
-            // tb(InputData.Count()+" <- InputData count. DATA = "+PrintPatch(InputData,FM0.operators));
-            // s="";
+                // string s="";
+                // tb(InputData.Count()+" <- InputData count. DATA = "+PrintPatch(InputData,FM0.operators));
+                // s="";
 
-            // foreach (string k in OutputData.Keys) {
-            //     s+=k+": "+OutputData[k]+" ";
-            // }
-            // tb(OutputData.Count()+" <- output count. data/key match results in "+s);
-            return false;
+                // foreach (string k in OutputData.Keys) {
+                //     s+=k+": "+OutputData[k]+" ";
+                // }
+                // tb(OutputData.Count()+" <- output count. data/key match results in "+s);
+                return false;
             }
 
             public void AddLostPatch(Dictionary<string,int> inputpatch) { // now all patches from data
@@ -2051,7 +2051,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 if (patch.ContainsKey(alg)) s+=" alg"+patch[alg]+" ";
                 if (patch.ContainsKey(desiredDTalg)) s+=" DT"+patch[desiredDTalg]+" ";
                 if (patch.ContainsKey(desiredMult)) s+=" MULT"+patch[desiredMult]+" ";
-                if (patch.ContainsKey(desiredForceOp)) s+=" FORCEOP"+patch[desiredMult]+" ";
+                if (patch.ContainsKey(desiredForceOp)) s+=" FORCEOP"+patch[desiredForceOp]+" ";
             } else {
                 // 2op: wave1 - wave2 - alg - vibrato1 - vibrato2 / mult1 - mult2    commands - desiredMult, desiredVibrato
                 // s+=ReturnWaveTypeString(patch[wave1])+"-"+ReturnWaveTypeString(patch[wave2])+"-alg"+patch[alg]+"-vib"+patch[vibrato1]+"-vib"+patch[vibrato2]+" / "+patch[mult1]+"- "+patch[mult2]+" ";
