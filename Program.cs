@@ -9,6 +9,10 @@ using System.IO.Compression; // gzip decompression
 // dotnet publish -r win-x64 -c Release /p:PublishSingleFile=true /p:PublishTrimmed=true
 
 /* 0v05 experimental
+    Note:
+    The program now will remove and add commands to the vgm. This is the only way to make the triggers more reliable, but
+    it's possible it may cause sync issues with some VGM players
+
     Major Features:
     Added YM2608ToneEditor .bank export (out_bank.cs). To enable: [EXTT.exe] bank 1 [file]
     Added .VGZ support (gzip compressed VGM)
@@ -28,13 +32,11 @@ using System.IO.Compression; // gzip decompression
     Fixed a bug in the timecode generation (ParseWaits was incorrectly using a signed int16)
     Added more stuff to ExamineVGMData (hopefully no more UNKNOWN COMMAND spam)
 
-    Note:
-    The program now will remove and add commands to the vgm. This is the only way to make the triggers more reliable, but
-    it's possible it may cause sync issues with some VGM players
-
     TODO
-    todo confirm ForceOP works. can it be integrated into patchkey?
+    todo confirm ForceOP works. can it be integrated into patchkey? seems to work
+    todo test OPL make sure that works
     TODO figure out how to soloVGM ym2612 DAC
+    todo migrate ParseArguments to global rather than static?
 
     better ch3 mode maybe? Triggerify check alg to see if it's appropriate to downscale mult? 
 
@@ -42,7 +44,7 @@ using System.IO.Compression; // gzip decompression
         This requires math formulas for converting BLOCK-FNUM to DT for OPN, and another for OPM which uses BLOCK-KEY-KEYFRACTION
             DT affects the phase directly. The relationship between pitch and detune is logarithmic, maybe. 
 
-    Integrate MonofyVGM, soloVGM. Most VGM players do not support OPN Ch#3 extended masking so the latter may be very useful
+    Integrate MonofyVGM, soloVGM(done). Most VGM players do not support OPN Ch#3 extended masking so the latter may be very useful
 
     OPLL, OPL4, OPX support: OPLL is quite different from OPL. OPL4 uses a 4-byte VGM command instead of 3. I have no idea what OPX is
 
@@ -226,7 +228,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             byte[] data = new byte[]{0,0,0};
             string filename = args[args.Length-1].ToString();       
 
-            if (filename.Substring(filename.Length-3).ToUpper() == "VGZ") { // decompress VGZ
+            if (filename.Substring(filename.Length-3).ToUpper() == "VGZ") { // * decompress VGZ
                 using FileStream compressedFileStream = File.Open(filename, FileMode.Open);
                 using var decompressor = new GZipStream(compressedFileStream, CompressionMode.Decompress);
                 using (MemoryStream ms = new MemoryStream()) {
@@ -346,7 +348,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             //// pt2: Find keyOn events and trace backwards to find patches, then edit them to our liking (mute operators, decide which detune value to use based on our settings, etc)
             //* Pt2 0.4: Parse through data, saving register indexes values as we go, if Detune / Mult changes are found search forward (in milliseconds) to find patches
 
-            // Updates on a timer to speed things up
+            // Updates on a timer to speed things up (unused)
             // ProgressTimer = new System.Timers.Timer(20); 
             // ProgressTimer.AutoReset=true;
             // ProgressTimer.Enabled=true;
@@ -548,130 +550,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             #endregion
         }
 
-        //* pt 1/5. - go through byte-by-byte, flag bytes that are safe to edit (v04 also wait commands)
-        static public bool[] ExamineVGMData(byte[] data, byte FMchip, int start, int end, ref bool[] WaitFlags, bool quiet) { // updated v42: DAC stream, complete (maybe) data skip
-            string detectedchipcodes="";
-            bool[] byteflag = new bool[end];
-            bool toif = false; int c=0;
-            // tb("datalength="+data.Count());
-            for (int i = 0; i < end;i++) {byteflag[i]=false;} // initialize all flags to false
-
-            int[] chips = new int[256]; //* log first location of chip code
-            for (int i = 0; i < chips.Length; i++) {chips[i]=0;};
-            // tb("start = 0x"+Convert.ToString(start,16));
-            for (int i = start; i < end; i++){
-                switch (data[i]){
-                    //* skip (and log) additional chip cmnds
-                    case byte n when (n >= 0x30 && n <= 0x3F): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // dual chip two-bytes
-                    case 0x4F: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // two-byte GameGear command (these show up on Genesis)
-                    case 0x50: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // two-byte SN76496 command (such as Genesis/MD PSG)
-                    case 0xA0: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte AY8910 command (such as x1 turbo)
-                    case 0xB0: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte RF5C68 command
-                    case 0xB1: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte RF5C164 command
-                    case 0xB5: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte MultiPCM command
-                    case 0xB6: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte uPD7759 command
-                    case 0xB7: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte OKIM6258 command
-                    case 0xB8: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte OKIM6295 command
-                    case 0xB9: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte HuC6280 command
-                    case 0xBA: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte K053260 command
-                    case 0xBB: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte POKEY command
-                    case 0xBC: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte WonderSwan command
-                    case 0xBD: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte SAA1099 command
-                    case 0xBE: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte ES5506 command
-                    case 0xBF: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte GA20 command
-                    case byte n when (n >= 0x40 && n <= 0x4E): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // dual chip three-bytes
-                    case byte n when (n >= 0xA1 && n <= 0xAF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // dual chip three-bytes cnt 
-                    case 0xC0: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // Four-byte Sega PCM command
-                    case byte n when (n >= 0xC1 && n <= 0xD6): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // Other Four-byte cmds
-                    case byte n when (n >= 0xC9 && n <= 0xCF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // dual chip Four-bytes
-                    case byte n when (n >= 0xD7 && n <= 0xDF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // dual chip Four-bytes cnt.
-                    case 0xE1: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=4; break; // Five-byte C352 command
-                    case byte n when (n >= 0xE2 && n <= 0xFF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=4; break; // dual chip five-bytes
-                    case 0x52:  //* If OPM+OPN2 it's probably the Bally/Williams/Midway DAC -> OPN2 DAC trick or similar
-                        if (FMchip != 0x52) { 
-                            if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte Additional OPN2 command
-                        } else { toif=true; break;} // send OPM to next conditional
-
-                    //* skip wait commands, samples & OPN2 DAC commands
-                    case 0x61: WaitFlags[i]=true; i+=2; break; // three-byte wait
-                    case 0x62: WaitFlags[i]=true; break;
-                    case 0x63: WaitFlags[i]=true; break;
-                    // case 0x66: i=end; tb("end reached @ 0x"+i); break; // end of sound data
-                    case 0x66: i=end; tb("ExamineVGMdata: 0x66 end byte reached @ 0x"+Convert.ToString(i,16) ); break; // end of sound data
-                    // case 0x66: i=end; break; // end of sound data
-                    case 0x67: // data block: 0x67 0x66 tt ss ss ss ss (data)
-                        int tmp=Get32BitInt(data,i+3);
-                        // tb("ExamineVGMdata: 0x"+Convert.ToString(i,16)+": data block size="+Convert.ToString(tmp,16)+" skipping to 0x"+Convert.ToString(i+tmp,16));
-                        i+=Get32BitInt(data,i+3); i+=6;
-                        break;
-                    case byte n when (n >= 0x70 && n <= 0x7F): WaitFlags[i]=true; break; // more waits. oh neat c# can do this
-                    case byte n when (n >= 0x80 && n <= 0x8F): WaitFlags[i]=true; break; // OPN2 sample write & wait
-                    case byte n when (n >= 0x90 && n <= 0x91): i+=4; break; // DAC Stream Control Write       0x90 ss tt pp cc
-                    case 0x92: i+=5; break; // DAC Stream Control Start Stream: 0x93 ss aa aa aa aa mm ll ll ll ll
-                    case 0x93: i+=10; break; // DAC Stream Control Start Stream: 0x93 ss aa aa aa aa mm ll ll ll ll
-                    case 0x94: i++; break; // DAC Stream Control Stop Stream: 0x94 ss
-                    case 0x95: i+=4; break; // DAC Stream Control Start Stream (fast call):  0x95 ss bb bb ff
-                    case 0xE0: i+=4; break; // OPN2 PCM pointer, followed by 32-bit value 
-                    // case byte FMchip: break; // not possible to do this type of comparison in switch?
-                    default: toif=true;break; //* all FMchip commands should go through to the next conditional
-                }
-                if (toif) { //* continuation of the switch above  
-                    if (IsFMRegister(data[i], FMchip)) { // * for OPNA / OPNB / OPN2 which have two possible registers depend on channel
-                        if (FMchip == 0x52 || FMchip == 0x55 || FMchip == 0x56 || FMchip == 0x58) { // if OPN, detect existence of ch#3 mode
-                            if (data[i] == FMchip && data[i+1]==0x27 && SecondBit(data[i+2])==1) { // 56 27 xx - timer command, second bit enables Ch#3 Extended Mode
-                                Channel3ModeDetected = true;
-                            }
-                        }
-                        byteflag[i]=true; // byteflag[i+1]=true;byteflag[i+2]=true; //* mark only the first byte so we don't trip over the same data. Was having a problem with lines like 54-54-xx..
-                        // tb("xvgm: "+Convert.ToString(data[i],16)); Console.ReadKey();
-                        i+=2; // all FM chip commands are 3-byte values
-                        c++; // count up all our commands
-                    } else {
-                        tb("ExamineVGMData: UNKNOWN COMMAND @0x"+(Convert.ToString(i,16))+": 0x"+Convert.ToString(data[i],16));
-                    }
-                    toif=false;
-                }
-            }
-            
-            for (int i = 0; i < chips.Length; i++) {
-                if (chips[i] > 0) {
-                    switch (i){
-                        case 0x4F: detectedchipcodes+="SN76496-GameGear ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                        case 0x50: detectedchipcodes+="SN76496 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                        case 0xA0: detectedchipcodes+="AY8910 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                        case 0xB0: detectedchipcodes+="RF5C68 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                        case 0xB1: detectedchipcodes+="RF5C164 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                        case 0xB5: detectedchipcodes+="MultiPCM ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                        case 0xB6: detectedchipcodes+="uPD7759 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                        case 0xB7: detectedchipcodes+="OKIM6258 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                        case 0xB8: detectedchipcodes+="OKIM6295 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                        case 0x52: detectedchipcodes+="OPN2 repurposed for DAC ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
-                    }
-                }
-            }
-            if (!quiet) {
-                tb("ExamineVGMData: scanned "+ (end-start)+" bytes, found "+c+" FM commands. Total bytes / command-related-bytes: "+ String.Format("{0:P2}.", Decimal.Divide((c*3),(end-start)) ));
-                if (detectedchipcodes != "") tb("ExamineVGMData: vvvvv Additional Chip Report vvvvv \n"+detectedchipcodes);
-            }
-            return byteflag;
-        }
-
-        static bool IsFMRegister(byte b, byte FMchip){ // ExamineVGMData helper
-            switch (FMchip){
-                case 0x52: if (b==0x52 || b==0x53) return true; break; // OPN2
-                case 0x54: if (b==FMchip) return true; break;   // OPM
-                case 0x55: if (b==FMchip) return true; break;   // OPN
-                case 0x56: if (b==0x56 || b==0x57) return true; break; // OPNA
-                case 0x58: if (b==0x58 || b==0x59) return true; break; // OPNB
-                case 0x5A: if (b==FMchip) return true; break;   // OPL2
-                case 0x5B: if (b==FMchip) return true; break;   // OPL (YM3526) 
-                case 0x5C: if (b==FMchip) return true; break;   // OPL MSX-AUDIO (Y8950) 
-                case 0x5E: if (b==0x5E || b==0x5F) return true; break;   // OPL3 (YMF262)
-
-            }
-            return false;
-        }
-
         public class Arguments { // contains global & per channel settings to be fed into main loop. Patch data is then fed back in, for patch report and for bank export
             // public int detunesetting, forceop, forcemult, altwaveform;
             public int detunesetting, forcemult;
@@ -687,9 +565,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
             public Arguments(int detunesetting, int forcemult, string name){
                 this.detunesetting = detunesetting;
-                // this.forceop = forceop; // delete me?
                 this.forcemult = forcemult;
-                // this.altwaveform = altwaveform; // delete me
                 this.name=name;
             }
 
@@ -1041,9 +917,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 return h+s;
             }
 
-
-
-
             public string AddGlobalValuesToFilename(){ //* only use for global values
                 string s="";
                 if (forcemult < 16 && forcemult > -16) s+= "Mult"+forcemult;
@@ -1194,7 +1067,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
                     // tb(FMref.name+"@ 0x"+lastidx+" Connect/Vibrato=alg"+LastBit(LABEL_VAL(alg))+" vib"+ Convert.ToString(SecondBit(LABEL_VAL("DTML1")),16)+"-"+Convert.ToString(SecondBit(LABEL_VAL("DTML2")),16));
 
-                } else {
+                } else if (operators == 4){
                     datavalues.Add(dt1,First4BitToInt(LABEL_VAL("DTML1"))); datavalues.Add(mult1,Second4BitToInt(LABEL_VAL("DTML1")));
                     datavalues.Add(dt2,First4BitToInt(LABEL_VAL("DTML2"))); datavalues.Add(mult2,Second4BitToInt(LABEL_VAL("DTML2")));
                     datavalues.Add(dt3,First4BitToInt(LABEL_VAL("DTML3"))); datavalues.Add(mult3,Second4BitToInt(LABEL_VAL("DTML3")));
@@ -1288,6 +1161,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     }
                     // data[LABEL_IDX("DTML2")+2] = FourToEightCoder(First4Bit(data[LABEL_IDX("DTML2")+2]), Convert.ToByte(OutMult) );                //* WRITE MULT
                     outDTML = FourToEightCoder(First4Bit(outDTML), Convert.ToByte(OutMult) );                //* SETUP MULT FOR WRITE DTML (APPEND METHOD v42)
+                    outDTML = (byte)(outDTML << 1); outDTML = (byte)(outDTML >> 1); // * kill AM LFO flag while we're here. OPL: XXXXYYYY AM enable / PM enable / EG type / KSR - MULT 
                     // data[LABEL_IDX("TL2")+2] = 12; // set volume OPL2 - first two bits are key scale LEVEL, 0,1,2= 00, 01, 10. Rest is TL, a 6-bit value of 0-63 (3F = muted)
                     Appender.Add(LastDTMLidx, new byte[]{FMref.chip, FMref.REF_LABEL_REG["TL"+outop], 0x00, 
                                                          FMref.chip, FMref.REF_LABEL_REG["TL"+muteA], 0x3F,
@@ -1300,7 +1174,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                                                          FMref.chip, FMref.REF_LABEL_REG["TL"+muteA], 0x7F,
                                                          FMref.chip, FMref.REF_LABEL_REG["TL"+muteB], 0x7F,
                                                          FMref.chip, FMref.REF_LABEL_REG["TL"+muteC], 0x7F,
-                                                         FMref.chip, FMref.REF_LABEL_REG["DTML"+outop], outDTML}); //? this will leave remnant DTML values if op jumps, but that's fine?
+                                                         FMref.chip, FMref.REF_LABEL_REG["DTML"+outop], outDTML}); 
                 }
 
                 if (Channel3ModeDetected && FMref.name=="FM2") { // track CH3 extended mode (CSM/Multi-frequency mode)
@@ -1360,7 +1234,9 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
         // static string LastDTMLstr = ""; // * auto forceop should choose the latest DTML cmd. Rather than figure this out with a loop we'll just track them as they come in
         static int LastDTMLnmbr = 0; // * auto forceop should choose the latest DTML cmd. Rather than figure this out with a loop we'll just track them as they come in
 
-        static Dictionary<int, byte[]> Appender = new Dictionary<int, byte[]>(); // v42 append test
+        static Dictionary<int, byte[]> Appender = new Dictionary<int, byte[]>(); // v42 DTML and TL is appended to the data later
+        delegate byte ModifyByte(byte b);
+        delegate void Modify3Bytes(ref byte b1, ref byte b2, ref byte b3);
 
         //! Main Loop
         //! find DTML values, look 10ms ahead for full patch values, then apply detune and mult 
@@ -1370,42 +1246,23 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             //! main loop!
             // * a brief explanation of what this does
             // Parse through the vgm data, collecting it as we go (via FMregister object REG_IDX/REG_VAL dictionaries) 
-            // If we find a DT/ML register, search 441 samples (10 ms) ahead to anticipate a full patch
+            // If we find a DT/ML register, search ~13 ms ahead to anticipate a full patch
             // Then launch FMregister.Triggerify: which makes modifications to the patch according to our FMarguments object
-            //      these hard edits are parked into 'Appender' and applied later in the Main() section, so we can safely resize our data buffer (v42)
+            //      these hard edits are parked into 'Appender' and applied later in the Main() section, so we can safely resize our data buffer (v42+)
             //      the full patch data is sent off via FMarguments.AddLostPatch. This is used for the patch report, and v42+, the .bank export 
 
             // After Triggerify pass is done, many values are edited (attack rate, algorithm etc). 
-            // These are all per-channel values so they shouldn't taint our data down the line
+            //      These are all per-channel values so they shouldn't taint our data down the line
             // all TL values are removed (without resizing) by turning them into POKEY writes. Appender will provide all our new TL writes
 
             FMregisters fMregisters = new FMregisters(FMin);
-
-            int LagThreshold = 441; // after a DT value is found, look ahead this many samples before Triggerify (441 = 10ms)
+            // v05a - increased threshold slightly to account for 1/100 logs, such as NP21 .s98 -> vgm conversions
+            int LagThreshold = 570; // after a DT value is found, look ahead this many samples before Triggerify (441 = 10ms)
             bool BeginDelay=false; // start lag
             int Lag = 0; // in samples, via parsewaits
 
-
-            // tb("fmregisters count "+fMregisters.REG_VAL.Count());
             LastDTMLidx=0;
             LastDTMLnmbr=0;
-            
-            for (int i = StartVGMdata; i < EndVGMdata; i++) {       // find our channel's first DT/ML reg writes and start all initial TLs as muted there
-                if (ByteFlags[i] && data[i]==fMregisters.chip) {    // Appender does it's work later after the loops have finished, so we can resize our data safely
-                    if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML1"] || data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML2"]) {
-                        if (FMin.operators==4) {
-                            Appender.Add(i, new byte[]{FMin.chip, FMin.REF_LABEL_REG["TL1"], 0x7f,
-                                                       FMin.chip, FMin.REF_LABEL_REG["TL2"], 0x7f,
-                                                       FMin.chip, FMin.REF_LABEL_REG["TL3"], 0x7f,
-                                                       FMin.chip, FMin.REF_LABEL_REG["TL4"], 0x7f});
-                        } else if (FMin.operators==2) {
-                            Appender.Add(i, new byte[]{FMin.chip, FMin.REF_LABEL_REG["TL1"], 0x3F,
-                                                       FMin.chip, FMin.REF_LABEL_REG["TL2"], 0x3F});
-                        }
-                        break;
-                    }
-                } 
-            }
 
             for (int i = StartVGMdata; i < EndVGMdata; i++) {
                 if (ByteFlags[i] && data[i]==fMregisters.chip) // data is structured in 3 bytes: [chip][reg][value]   [chip]=ByteFlags true
@@ -1414,7 +1271,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                         fMregisters.REG_IDX[data[i+1]] = i; //? REG_IDX isn't doing as much as it used to. Remove for simplicity? (instead use LastDTMLidx?)
                         fMregisters.REG_VAL[data[i+1]] = data[i+2];
                         // tb("0x"+Convert.ToString(i,16) + " added reg "+Convert.ToString(data[+1],16));
-                        // fMregisters.REG_VAL.
                     } else { // * add other registers. This is only necessary for .bank output
                         fMregisters.REG_VAL.Add(data[i+1], data[i+2]);
                         fMregisters.REG_IDX.Add(data[i+1], i);          
@@ -1425,8 +1281,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                         fMregisters.lastidx = i;
                         Lag = 0; BeginDelay=true; // tb("0x"+Convert.ToString(i,16) + " dt1");
                         LastDTMLidx = i; LastDTMLnmbr = 1;
-                    }
-                    if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML2"]) {
+                    } else if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML2"]) {
                         fMregisters.lastidx = i;
                         Lag = 0; BeginDelay=true; // tb("0x"+Convert.ToString(i,16) + " dt2");
                         LastDTMLidx = i; LastDTMLnmbr = 2;
@@ -1435,8 +1290,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                             fMregisters.lastidx = i;
                             Lag = 0; BeginDelay=true; // tb("0x"+Convert.ToString(i,16) + " dt3");
                             LastDTMLidx = i; LastDTMLnmbr = 3;
-                        }
-                        if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML4"]) {
+                        } else if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML4"]) {
                             fMregisters.lastidx = i;
                             Lag = 0; BeginDelay=true; // tb("0x"+Convert.ToString(i,16) + " dt4");
                             LastDTMLidx = i; LastDTMLnmbr = 4;
@@ -1456,93 +1310,236 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
 
 
-            //* Pt.B: Global changes (smashing feedback, decay, muting operators, etc). Do this last so we get a more accurate snapshot of data
-            for (int i = StartVGMdata; i < EndVGMdata; i++) {   // * kill all TLs (v42 append test). Append will add them all back after all channels are looped through
-                // if (i >= 0xc471 && i < 0xc4da) { // debugging
-                //     tb(FMin.name+": 0x0000"+Convert.ToString(i,16) +" "+ ByteFlags[i]);
-                // }
-                if (ByteFlags[i] && data[i]==FMin.chip) {
+            //* Pt.B: Global changes (smashing feedback, decay, muting operators, etc)
 
-                    if (data[i+1]==FMin.REF_LABEL_REG["TL1"] || data[i+1]==FMin.REF_LABEL_REG["TL2"]
-                    || data[i+1]==FMin.REF_LABEL_REG["DTML1"] || data[i+1]==FMin.REF_LABEL_REG["DTML2"]) {
-                        PokeyMe(data,i);
-                    }
-                    if (FMin.operators==4) {
-                        if (data[i+1]==FMin.REF_LABEL_REG["TL3"] || data[i+1]==FMin.REF_LABEL_REG["TL4"]
-                        || data[i+1]==FMin.REF_LABEL_REG["DTML3"] || data[i+1]==FMin.REF_LABEL_REG["DTML4"]) {
-                            PokeyMe(data,i);
+            // initialize our TL values (since we're removing them all)
+            for (int i = StartVGMdata; i < EndVGMdata; i++) {       // find our channel's first DT/ML reg writes and start all initial TLs as muted there
+                if (ByteFlags[i] && data[i]==fMregisters.chip) {    // Appender does it's work later after the loops have finished, so we can resize our data safely
+                    if (data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML1"] || data[i+1] == fMregisters.FMref.REF_LABEL_REG["DTML2"]) {
+                        if (FMin.operators==4) {
+                            Appender.Add(i, new byte[]{FMin.chip, FMin.REF_LABEL_REG["TL1"], 0x7f,
+                                                       FMin.chip, FMin.REF_LABEL_REG["TL2"], 0x7f,
+                                                       FMin.chip, FMin.REF_LABEL_REG["TL3"], 0x7f,
+                                                       FMin.chip, FMin.REF_LABEL_REG["TL4"], 0x7f});
+                        } else if (FMin.operators==2) {
+                            Appender.Add(i, new byte[]{FMin.chip, FMin.REF_LABEL_REG["TL1"], 0x3F,
+                                                       FMin.chip, FMin.REF_LABEL_REG["TL2"], 0x3F});
                         }
+                        break;
                     }
-                }
-
+                } 
             }
-            // tb("looking for "+Convert.ToString(FMin.op1_TL,16)+" "+Convert.ToString(FMin.op2_TL,16)+" "
-            // +Convert.ToString(FMin.op3_TL,16)+" "+Convert.ToString(FMin.op4_TL,16)+" ");
-            // tb("c48c="+Convert.ToString(data[0xc48c],16)+" "+Convert.ToString(data[0xc48d],16));
-            // Console.ReadKey();
+            Modify3Bytes PokeyMe2 = delegate(ref byte slot, ref byte reg, ref byte val) {
+                slot=0xBB; reg=0x00; val=0x00;
+            };
+            // Modify3Bytes KillFirstBit = delegate(ref byte slot, ref byte reg, ref byte val) { // unused (moved to Triggerify)
+            //     byte tmp = (byte)(val >> 1);
+            //     val = (byte)(tmp << 1);
+            // };
+            Modify3Bytes KillSecondNibble = delegate(ref byte slot, ref byte reg, ref byte val) {
+                var tmp=(byte)(val >> 4);
+                val = (byte)(tmp << 4);
+            };
 
-            // if (FMin.chip == 0x54) { // TODO mono output?
-            //     FindAndReplaceFirstTwoBits(FMin.chip, FMin.REF_LABEL_REG[FEEDBACK_ALG], 0b00000011, data, ByteFlags, StartVGMdata, EndVGMdata);
+            var Col_Reg_3bytes = new Dictionary<byte,Modify3Bytes>();
 
-            // } else if (FMin.chip == 0x52 || FMin.chip == 0x56 || FMin.chip == 0x58) {
-            //     FindAndReplaceFirstTwoBits(FMin.chip, FMin.REF_LABEL_REG[LFO_CHANNEL_SENSITIVITY], 0xff, data, ByteFlags, StartVGMdata, EndVGMdata);
-            // }
-
-
-
-            // * Channel Wide Changes - Feedback / Alg / LFO stuff
-            if (FMin.operators==2){ // *smash feedback & algorithm (alg 4?)
-                FindAndkillFirstBit_2Reg(FMin.chip, FMin.REF_LABEL_REG["DTML1"], FMin.REF_LABEL_REG["DTML2"], data, ByteFlags, StartVGMdata, EndVGMdata); // XXXXYYYY AM enable / PM enable / EG type / KSR - MULT ---- we kill "AM" vibrato
-                FindAndReplaceSecond4Bit(FMin.chip, FMin.REF_LABEL_REG[FEEDBACK_ALG], 0x00, data, ByteFlags, StartVGMdata, EndVGMdata); // OPL - XXXXYYYZ - CHD/CHC/CHB/CHA output (OPL3 only) / Feedback / ALG
-            } else if (FMin.chip==0x54) {  
-                FindAndReplaceByte(FMin.chip, FMin.REF_LABEL_REG[FEEDBACK_ALG], 0xC7, data, ByteFlags, StartVGMdata, EndVGMdata);    // On OPM the first 2 bits are for stereo. 00 will mute!
-            } else {                                                                    
-                FindAndReplaceByte(FMin.chip, FMin.REF_LABEL_REG[FEEDBACK_ALG], 0x07, data, ByteFlags, StartVGMdata, EndVGMdata); // Feedback/alg to 0/7
-                if (chiptype != 0x55) { // if not YM2203,
-                    FindAndReplaceFirstTwoBits(FMin.chip, FMin.REF_LABEL_REG[LFO_CHANNEL_SENSITIVITY], 0b00000011, data, ByteFlags, StartVGMdata, EndVGMdata); // mono OPNA
-                }
+            for (int i = 1; i < FMin.operators+1; i++) { 
+                Col_Reg_3bytes[FMin.REF_LABEL_REG["TL"+i]] = PokeyMe2;
+                Col_Reg_3bytes[FMin.REF_LABEL_REG["DTML"+i]] = PokeyMe2; // for OPL, Triggerify should handle the first nibble.  XXXXYYYY AM enable / PM enable / EG type / KSR - MULT
             }
+            if (FMin.operators==2) Col_Reg_3bytes[FMin.REF_LABEL_REG[FEEDBACK_ALG]] = KillSecondNibble; // OPL - XXXXYYYZ - CHD/CHC/CHB/CHA output (OPL3 only) / Feedback / ALG
 
             // * Operator Wide changes vv
-            var opswap = new Dictionary<string, byte>();
-            if (FMin.operators == 2) { // OPL
-                opswap[AR_DR_OPL] = 0xF0;
-                opswap[SL_RR] = 0x00;
-                opswap[WAVEFORM] = 0x00; // -----XXX OPL3, ------XX OPL2
-            } else { // OPM / OPN
-                opswap[AR_KSR] = 0b00011111; // XX-YYYYY KSR-AR OPM/OPN ONLY        aka 1f
-                opswap[DR_LFO_AM_ENABLE] = 0x00; // X--YYYYY LFO AM Enable / Decay Rate
-                opswap[SR_DT2] = 0x00; // XX-YYYYY DT2 / SR
-                opswap[SL_RR] = 0x00; // XX-YYYYY DT2 / SR
-                opswap[SSGEG_ENABLE_ENVELOPE] = 0x00; // ----XYYY SSG-EG enable / SSG-EG envelope (0-7) OPN series only
-                opswap[WAVEFORM] = 0x00; // XXX---- OPZ...   ym2414 only 
+            var tmp = new Dictionary<string, byte>();
+            if (FMin.operators == 2) { // OPL           // * operator wide commands first (2-4 of these)
+                tmp[AR_DR_OPL] = 0xF0;
+                tmp[SL_RR] = 0x00;
+                tmp[WAVEFORM] = 0x00; // -----XXX OPL3, ------XX OPL2
+            } else if (FMin.operators == 4) { // OPM / OPN
+                tmp[AR_KSR] = 0b00011111; // XX-YYYYY KSR-AR OPM/OPN ONLY        aka 1f
+                tmp[DR_LFO_AM_ENABLE] = 0x00; // X--YYYYY LFO AM Enable / Decay Rate
+                tmp[SR_DT2] = 0x00; // XX-YYYYY DT2 / SR
+                tmp[SL_RR] = 0x00; // XX-YYYYY DT2 / SR
+                if (FMin.chip != 0x54) tmp[SSGEG_ENABLE_ENVELOPE] = 0x00; // ----XYYY SSG-EG enable / SSG-EG envelope (0-7) OPN series only
+                // opswap[WAVEFORM] = 0x00; // XXX---- OPZ...   ym2414 only 
             }
 
-            var ops = FMin.Ops(); // returns all FM operators data info (2 for OPL, 4 for OPM/N). This data is in string/byte form
-            for (int i = StartVGMdata; i < EndVGMdata; i++) {
-                if (ByteFlags[i] && data[i]==FMin.chip) {       // byte 1 (chip / bank, determined by channel)
-                    foreach (Dictionary<string,byte> op in ops) { // for each operator...
-                        // op <label, register>
-                        // opswap <label, desired value> -> needs to become register, desired value
-                        foreach (var label_value in opswap) {            // 
-                            if (op.ContainsKey(label_value.Key) ) {       // if register name (label) is present...
-                                if (data[i+1] == op[label_value.Key]) {   // op's value is equal to data...   // byte 2, register
-                                    data[i+2] = label_value.Value;           //* byte 3, value (modifiy)
-                                }
-                            }
+            var byteswap = new Dictionary<byte, byte>();
+            foreach (var lg in tmp) {      // Add one of the above for each operator ex. SL_RR becomes SL_RR1 SL_RR2 SL_RR3 SL_RR4
+                for (int i = 1; i < FMin.operators+1; i++) {
+                    byteswap[FMin.REF_LABEL_REG[lg.Key+i]] = lg.Value;
+                }
+            }
+
+            if (FMin.chip==0x54) { // then we can safely add in channel-wide commands
+                byteswap[FMin.REF_LABEL_REG[FEEDBACK_ALG]] = 0xC7;    // On OPM the first 2 bits are for stereo, so setting first nibble to 0 will mute!
+            } else {
+                byteswap[FMin.REF_LABEL_REG[FEEDBACK_ALG]] = 0x07;    // OPN
+            }
+            // TODO mono output? should this be an argument? OPM stereo is in FEEDBACK_ALG, OPNx is in LFO_CHANNEL_SENSITIVITY
+
+            // PrintDictionary(byteswap); Console.ReadKey();
+
+            // int c=0;
+            for (int i = StartVGMdata; i < EndVGMdata; i++) { // * combined all smasher writes into one loop (well, one per channel anyway)
+                if (ByteFlags[i] && data[i]==FMin.chip) {
+                    foreach (var rv in byteswap) {  // * simple full byte swaps
+                        if (data[i+1] == rv.Key) {
+                            data[i+2] = rv.Value; // c++;
                         }
                     }
-
+                    foreach (var reg_3bytefunc in Col_Reg_3bytes) { // register, delegate to run (over all 3 bytes, though only PokeyMe2 rewrites all of them)
+                        if (data[i+1] == reg_3bytefunc.Key) { // * more complicated writes (kill just first bit, kill second nible, pokeyme etc)
+                            // tb("{0} {1} {2} <- old",Convert.ToString(data[i],16),Convert.ToString(data[i+1],16),Convert.ToString(data[i+2],16));
+                            // tb("{0} {1} {2} <- old",Convert.ToString(data[i],16),FMin.REF_REG_LABEL[data[i+1]],Convert.ToString(data[i+2],16));
+                            reg_3bytefunc.Value(ref data[i],ref data[i+1],ref data[i+2]); 
+                            // tb("{0} {1} {2} <- new",Convert.ToString(data[i],16),Convert.ToString(data[i+1],16),Convert.ToString(data[i+2],16)); Console.ReadKey();
+                        }
+                    }
                 }
-
             }
 
             // tb(showprogress);
-            // if (FMargs.LookForPatchKeys){
-            // LostPatchLog+=FMargs.ReturnLostPatches(FM0.operators)+"\n";
-            // }
-
         }
+
+        // public static string showprogress="", lastprogress=""; //* timer is nonfunctional atm
+        // public static Timer? ProgressTimer; // why is this non nullable
+        // public static void UpdateProgress(Object source, System.Timers.ElapsedEventArgs e){
+        //     // Console.WriteLine("Raised: {0}", e.SignalTime);
+        //     if (showprogress != lastprogress){ // quick and dirty
+        //         tb(showprogress);
+        //     }
+        //     lastprogress = showprogress;
+        // }
+
+        #region VGM-format-related helper functions
+
+        static public bool[] ExamineVGMData(byte[] data, byte FMchip, int start, int end, ref bool[] WaitFlags, bool quiet) { // updated v42: DAC stream, complete (maybe) data skip
+            string detectedchipcodes="";
+            bool[] byteflag = new bool[end];
+            bool toif = false; int c=0;
+            // tb("datalength="+data.Count());
+            for (int i = 0; i < end;i++) {byteflag[i]=false;} // initialize all flags to false
+
+            int[] chips = new int[256]; //* log first location of chip code
+            for (int i = 0; i < chips.Length; i++) {chips[i]=0;};
+            // tb("start = 0x"+Convert.ToString(start,16));
+            for (int i = start; i < end; i++){
+                switch (data[i]){
+                    //* skip (and log) additional chip cmnds
+                    case byte n when (n >= 0x30 && n <= 0x3F): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // dual chip two-bytes
+                    case 0x4F: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // two-byte GameGear command (these show up on Genesis)
+                    case 0x50: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=1; break; // two-byte SN76496 command (such as Genesis/MD PSG)
+                    case 0xA0: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte AY8910 command (such as x1 turbo)
+                    case 0xB0: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte RF5C68 command
+                    case 0xB1: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte RF5C164 command
+                    case 0xB5: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte MultiPCM command
+                    case 0xB6: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte uPD7759 command
+                    case 0xB7: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte OKIM6258 command
+                    case 0xB8: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte OKIM6295 command
+                    case 0xB9: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte HuC6280 command
+                    case 0xBA: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte K053260 command
+                    case 0xBB: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte POKEY command
+                    case 0xBC: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte WonderSwan command
+                    case 0xBD: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte SAA1099 command
+                    case 0xBE: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte ES5506 command
+                    case 0xBF: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte GA20 command
+                    case byte n when (n >= 0x40 && n <= 0x4E): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // dual chip three-bytes
+                    case byte n when (n >= 0xA1 && n <= 0xAF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // dual chip three-bytes cnt 
+                    case 0xC0: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // Four-byte Sega PCM command
+                    case byte n when (n >= 0xC1 && n <= 0xD6): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // Other Four-byte cmds
+                    case byte n when (n >= 0xC9 && n <= 0xCF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // dual chip Four-bytes
+                    case byte n when (n >= 0xD7 && n <= 0xDF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=3; break; // dual chip Four-bytes cnt.
+                    case 0xE1: if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=4; break; // Five-byte C352 command
+                    case byte n when (n >= 0xE2 && n <= 0xFF): if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=4; break; // dual chip five-bytes
+                    case 0x52:  //* If OPM+OPN2 it's probably the Bally/Williams/Midway DAC -> OPN2 DAC trick or similar
+                        if (FMchip != 0x52) { 
+                            if (chips[data[i]] == 0 ) {chips[data[i]] = i; }; i+=2; break; // three-byte Additional OPN2 command
+                        } else { toif=true; break;} // send OPM to next conditional
+
+                    //* skip wait commands, samples & OPN2 DAC commands
+                    case 0x61: WaitFlags[i]=true; i+=2; break; // three-byte wait
+                    case 0x62: WaitFlags[i]=true; break;
+                    case 0x63: WaitFlags[i]=true; break;
+                    // case 0x66: i=end; tb("end reached @ 0x"+i); break; // end of sound data
+                    case 0x66: i=end; tb("ExamineVGMdata: 0x66 end byte reached @ 0x"+Convert.ToString(i,16) ); break; // end of sound data
+                    // case 0x66: i=end; break; // end of sound data
+                    case 0x67: // data block: 0x67 0x66 tt ss ss ss ss (data)
+                        int tmp=Get32BitInt(data,i+3);
+                        // tb("ExamineVGMdata: 0x"+Convert.ToString(i,16)+": data block size="+Convert.ToString(tmp,16)+" skipping to 0x"+Convert.ToString(i+tmp,16));
+                        i+=Get32BitInt(data,i+3); i+=6;
+                        break;
+                    case byte n when (n >= 0x70 && n <= 0x7F): WaitFlags[i]=true; break; // more waits. oh neat c# can do this
+                    case byte n when (n >= 0x80 && n <= 0x8F): WaitFlags[i]=true; break; // OPN2 sample write & wait
+                    case byte n when (n >= 0x90 && n <= 0x91): i+=4; break; // DAC Stream Control Write       0x90 ss tt pp cc
+                    case 0x92: i+=5; break; // DAC Stream Control Start Stream: 0x93 ss aa aa aa aa mm ll ll ll ll
+                    case 0x93: i+=10; break; // DAC Stream Control Start Stream: 0x93 ss aa aa aa aa mm ll ll ll ll
+                    case 0x94: i++; break; // DAC Stream Control Stop Stream: 0x94 ss
+                    case 0x95: i+=4; break; // DAC Stream Control Start Stream (fast call):  0x95 ss bb bb ff
+                    case 0xE0: i+=4; break; // OPN2 PCM pointer, followed by 32-bit value 
+                    // case byte FMchip: break; // not possible to do this type of comparison in switch?
+                    default: toif=true;break; //* all FMchip commands should go through to the next conditional
+                }
+                if (toif) { //* continuation of the switch above  
+                    if (IsFMRegister(data[i], FMchip)) { // * for OPNA / OPNB / OPN2 which have two possible registers depend on channel
+                        if (FMchip == 0x52 || FMchip == 0x55 || FMchip == 0x56 || FMchip == 0x58) { // if OPN, detect existence of ch#3 mode
+                            if (data[i] == FMchip && data[i+1]==0x27 && SecondBit(data[i+2])==1) { // 56 27 xx - timer command, second bit enables Ch#3 Extended Mode
+                                Channel3ModeDetected = true;
+                            }
+                        }
+                        byteflag[i]=true; // byteflag[i+1]=true;byteflag[i+2]=true; //* mark only the first byte so we don't trip over the same data. Was having a problem with lines like 54-54-xx..
+                        // tb("xvgm: "+Convert.ToString(data[i],16)); Console.ReadKey();
+                        i+=2; // all FM chip commands are 3-byte values
+                        c++; // count up all our commands
+                    } else {
+                        tb("ExamineVGMData: UNKNOWN COMMAND @0x"+(Convert.ToString(i,16))+": 0x"+Convert.ToString(data[i],16));
+                    }
+                    toif=false;
+                }
+            }
+            
+            for (int i = 0; i < chips.Length; i++) {
+                if (chips[i] > 0) {
+                    switch (i){
+                        case 0x4F: detectedchipcodes+="SN76496-GameGear ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                        case 0x50: detectedchipcodes+="SN76496 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                        case 0xA0: detectedchipcodes+="AY8910 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                        case 0xB0: detectedchipcodes+="RF5C68 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                        case 0xB1: detectedchipcodes+="RF5C164 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                        case 0xB5: detectedchipcodes+="MultiPCM ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                        case 0xB6: detectedchipcodes+="uPD7759 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                        case 0xB7: detectedchipcodes+="OKIM6258 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                        case 0xB8: detectedchipcodes+="OKIM6295 ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                        case 0x52: detectedchipcodes+="OPN2 repurposed for DAC ("+Convert.ToString(i,16)+") @ 0x"+Convert.ToString(chips[i],16)+"\n"; break;
+                    }
+                }
+            }
+            if (!quiet) {
+                tb("ExamineVGMData: scanned "+ (end-start)+" bytes, found "+c+" FM commands. Total bytes / command-related-bytes: "+ String.Format("{0:P2}.", Decimal.Divide((c*3),(end-start)) ));
+                if (detectedchipcodes != "") tb("ExamineVGMData: vvvvv Additional Chip Report vvvvv \n"+detectedchipcodes);
+            }
+            return byteflag;
+        }
+
+        static bool IsFMRegister(byte b, byte FMchip){ // ExamineVGMData helper
+            switch (FMchip){
+                case 0x52: if (b==0x52 || b==0x53) return true; break; // OPN2
+                case 0x54: if (b==FMchip) return true; break;   // OPM
+                case 0x55: if (b==FMchip) return true; break;   // OPN
+                case 0x56: if (b==0x56 || b==0x57) return true; break; // OPNA
+                case 0x58: if (b==0x58 || b==0x59) return true; break; // OPNB
+                case 0x5A: if (b==FMchip) return true; break;   // OPL2
+                case 0x5B: if (b==FMchip) return true; break;   // OPL (YM3526) 
+                case 0x5C: if (b==FMchip) return true; break;   // OPL MSX-AUDIO (Y8950) 
+                case 0x5E: if (b==0x5E || b==0x5F) return true; break;   // OPL3 (YMF262)
+
+            }
+            return false;
+        }
+
+
+
+
 
         static int ParseWaits(byte[] data, int idx, bool[] WaitFlags){ // just return delay of current byte, in samples
             if (WaitFlags[idx]){ // 'wait' commands should be flagged ahead of time by this bool array
@@ -1559,7 +1556,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             return 0;
         }
 
-        static int ParseWaits2(byte[] data, ref int idx, bool[] WaitFlags){ //* will iterate index by 2 if 3-byte wait is found. Must-use for loops
+        static int ParseWaits2(byte[] data, ref int idx, bool[] WaitFlags){ //* will iterate index by 2 if 3-byte wait is found. More accurate - Must-use for loops
             if (WaitFlags[idx]){ // 'wait' commands should be flagged ahead of time by this bool array
                 switch (data[idx]){
                     case 0x61: idx+=2; return BitConverter.ToUInt16(data, idx+1);   // three-byte wait  bugfix 2022-02-22. needs to be UINT not int...
@@ -1634,273 +1631,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             // debugDesiredDT = str;
             return outDT;
         }
-
-
-        // public static string showprogress="", lastprogress=""; //* timer is nonfunctional atm
-        // public static Timer? ProgressTimer; // why is this non nullable
-        // public static void UpdateProgress(Object source, System.Timers.ElapsedEventArgs e){
-        //     // Console.WriteLine("Raised: {0}", e.SignalTime);
-        //     if (showprogress != lastprogress){ // quick and dirty
-        //         tb(showprogress);
-        //     }
-        //     lastprogress = showprogress;
-        // }
-
-
-        #region Bitwise function jungle
-        static byte Second4BitMinusMult(byte mult, byte subtractme){ // handle addmult (forcemult <0)
-            // byte mult2 = Convert.ToInt16();
-            if (subtractme == 0x00) return Second4Bit(mult);
-            mult = Second4Bit(mult);
-            // int mult = amult;
-            // short subtractme = asubtractme;
-            if (mult == subtractme) { // doing subtract and ending up with 0 raises error so..
-                return 0x00;
-            } else if (mult > subtractme){      // return subtracted value
-                // string s="";
-                // s="in:"+mult2;
-                // mult2-=subtractme; 
-                // s+=" out:"+mult2;
-                // tb("in:"+mult+"-"+subtractme+ " out:"+(byte)(mult - subtractme) );
-                // if (mult == 0x02) {tb("!!!!!in:"+mult+"-"+subtractme+ " out:"+(byte)(mult - subtractme) ); }
-                // if (mult2 != 0x00) {tb("in:"+Convert.ToString(mult2)+" out:"+Convert.ToString(Convert.ToByte(mult2-subtractme)) );}
-                // return Convert.ToByte(mult2-subtractme);
-                return (byte)(mult - subtractme);
-            } else {
-                return Convert.ToByte(mult); // if mult value + add is less than 0, just return second 4 bit
-            }
-        }
-        static byte KillFirstTwoBits(byte b) { return (byte)(b & 0b00111111);}
-        static byte First4Bit(byte b){return (byte)(b >> 4); }
-        // static int First4Bit_Int(byte b){return (int)(b >> 4); }
-        static byte Second4Bit(byte b){return (byte)(b & 0x0F); }
-        static byte First5Bit(byte b){return (byte)(b >> 3); }
-        static byte Last3Bit(byte b){return (byte)(b & 0x07); }
-        static byte FiveToEightCoder(byte value1, byte value2) { //? untested
-            byte returnValue = 0;
-            returnValue += value1;              //Write value1;
-            returnValue *= 32;              //move it 5 bit left
-            returnValue += value2;              //write value2
-            return returnValue;
-        }
-        static int First4BitToInt(byte b){return Convert.ToInt32((byte)(b >> 4) ); } // could overload but probably better to just remember
-        static int Second4BitToInt(byte b){return Convert.ToInt32((byte)(b & 0x0F) ); }
-        static byte FourToEightCoder(byte value1, byte value2){             //Check if both values are below 16
-            byte returnValue = 0;                           //If not, throw an argument exception
-            returnValue += value1;              //Write value1;
-            returnValue *= 16;              //move it 4 bit left
-            returnValue += value2;              //write value2
-            return returnValue;
-        }
-        static byte First2Bit(byte b){return (byte)(b >> 6); }
-        static byte Second6Bit(byte b){return (byte)(b & 0x3F);}
-        static byte TwoToSixCoder(byte value1, byte value2){  
-            byte returnValue = 0;   
-            returnValue += value1;              //Write value1;
-            returnValue *= 64;              //move it 6 bit left
-            returnValue += value2;              //write value2
-            return returnValue;
-        }
-        static string GetBinary(byte b){ return Convert.ToString(b,2).PadLeft(8, '0');} // for debug
-        static int Get32BitInt(byte[] d, byte i){ return BitConverter.ToInt32(d,i);}
-        static int Get32BitInt(byte[] d, int i){ return BitConverter.ToInt32(d,i);}
-
-        static byte SecondBit(byte b){
-            b = (byte)(b << 1); // erase first bit
-            b = (byte)(b >> 7); // move to first // THIS MIGHT FLOOD THE BYTE WITH ONES...
-            return b;  
-        }
-        static byte CodeSecondBit(byte byt, byte b2){
-            if (b2>=0x01){
-                return (byte) (byt | 0b01000000); // 0x40 = 0b01000000 
-
-            } else {
-                return (byte) (byt & ~0b01000000); // ~ inverts byte mask
-            }
-        }
-        static byte LastBit(byte b){
-            b = (byte)(b << 7); // erase first 7 bits
-            b = (byte)(b >> 7); // move to first
-            return b;  
-        }
-        static byte ReplaceFirstHalfByte(byte xa, byte dt){  // for setting DT. in:byte, int DT value (0-7)
-            return FourToEightCoder(dt, Second4Bit(xa)); // DT|ML
-        }
-
-        #endregion
-
-        #region Bitwise Cont - Data Find And Replace
-
-        static void FindAndReplaceSecondBit(byte xa, byte xb, byte insertbit, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){
-            // string s=""; // debug / printing
-            for (int i = startVGMdata; i < endVGMdata; i++){
-                if (byteflag[i] && data[i]==xa && data[i+1]==xb) {
-                    // s+="FindAndReplaceSecondBit: "+GetBinary(data[i+2])+" ->\n";
-                    data[i+2] = CodeSecondBit(data[i+2], insertbit);
-                    
-                    // s+="FindAndReplaceSecondBit: "+GetBinary(data[i+2])+"\n";
-                }
-            }
-            // tb(s); Console.ReadKey();
-        }
-
-        static void FindAndkillFirstBit_2Reg(byte port, byte reg1, byte reg2, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){
-                for (int i = startVGMdata; i < endVGMdata; i++){ 
-                    if (byteflag[i] && data[i]==port) {
-                        if (data[i+1]==reg1 || data[i+1]==reg2) { // 2 possible registers
-                            // byte b = (byte)(data[i+2] << 1); // erase first bit
-                            // b = (byte)(data[i+2] >> 1);     // shuffle data back into position
-                            // data[i+2] = b;
-                            data[i+2] = (byte)(data[i+2] & 0b01111111);
-                        }
-                    }
-                }
-        }
-
-        static void FindAndReplaceFirstTwoBits(byte xa, byte xb, byte insertbit, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){
-            // string s=""; // debug / printing
-            for (int i = startVGMdata; i < endVGMdata; i++){
-                if (byteflag[i] && data[i]==xa && data[i+1]==xb) {
-                    // s+="FindAndReplaceSecondBit: "+GetBinary(data[i+2])+" ->\n";
-                    // data[i+2] = CodeSecondBit(data[i+2], insertbit);
-                    data[i+2] = TwoToSixCoder(insertbit, data[i+2]);
-                    
-                    // s+="FindAndReplaceSecondBit: "+GetBinary(data[i+2])+"\n";
-                }
-            }
-            // tb(s); Console.ReadKey();
-        }
-
-
-
-        static void FindAndkillFirstTwoBits(byte xa, byte xb, byte byt, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){
-            //string s="FindAndReplaceFirstTwoBits:0b"+GetBinary(byt)+"\n"; // debug / printing
-            for (int i = startVGMdata; i < endVGMdata; i++){
-                    // if (i == 0x17832){
-                    //     tb("debug "+byteflag[i]+", "+data[i]+" "+data[i+1]+" "+data[i+2]);//Console.ReadKey();
-                    // }
-                if (byteflag[i] && data[i]==xa && data[i+1]==xb) {
-                    // s+="FindAndReplaceFirstTwoBits: "+GetBinary(data[i+2])+" ->\n";
-                    byt = (byte) (data[i+2] & 0b00111111);  // this might be broken at the moment 
-                    data[i+2] = byt; // mask out everything but first two, then add
-
-                    // if (i == 0x17832){
-                    //     tb("debug "+byteflag[i]+", "+data[i]+" "+data[i+1]+" "+data[i+2]);Console.ReadKey();
-                    //     return true;
-                    // }
-
-
-                    // data[i+2] = CodeSecondBit(data[i+2], insertbit);
-                    // if (b2>=0x01){
-                    //     data[i+2] = (byte) (byt | data[i+2]); // 0x40 = 0b01000000 
-                    // } else {
-                    //     data[i+2] = (byte) (byt & ~data[i+2]); // ~ inverts byte mask
-                    // }
-                    // s+="FindAndReplaceFirstTwoBits: "+GetBinary(data[i+2])+"\n";
-                    //  tb(s); Console.ReadKey();
-                }
-            }
-            // tb(s);// Console.ReadKey();
-            // return false;
-        }
-
-        static void FindAndReplaceSecond4Bit(byte xa, byte xb, byte xc, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){  // 
-            int i; //string s=""; int c=0;
-            for (i=startVGMdata; i<endVGMdata; i++){
-                if (byteflag[i]){   // if start of 3-byte command
-                    if (data[i]==xa && data[i+1]==xb){
-                        // c+=1; // just count
-                        // s+=("FindAndReplaceSecond4Bit: matched 0x" + Convert.ToString(i,16)+" ("+Convert.ToString(data[i],16)+"|"+
-                        // Convert.ToString(data[i+1],16)+"|"+ Convert.ToString(data[i+2],16)+") -> " );
-
-                        data[i+2] = FourToEightCoder(First4Bit(data[i+2]),xc);
-
-                        // s+=(Convert.ToString(data[i+2],16)+"\n" );
-                        // i+=2; // move on to prevent potential false matches with replaced data...
-                    }
-                }
-            }
-            // tb(s+"\nMuting*"+Convert.ToString(xa,16)+"|"+Convert.ToString(xb,16)+" completed after "+ c + "matches!");
-            // c=0; // should be unnecessary
-                        // System.Console.ReadKey(); // debug step-through
-            return;   // will just return last value
-
-        }
-        static void FindAndReplaceSecond6Bit(byte xa, byte xb, byte xc, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){  // PLEASE only feed in 6 bit values for xb
-            int i; int c=0; //string s="";
-            for (i=startVGMdata; i < endVGMdata; i++) {
-                if (byteflag[i]){   // if start of 3-byte command
-                    if (data[i]==xa && data[i+1]==xb){
-                        c+=1; // just count
-                        // s+="FindAndReplaceSecond4Bit: matched 0x" + Convert.ToString(i,16)+" ("+Convert.ToString(data[i],16)+"|"+
-                        // Convert.ToString(data[i+1],16)+"|"+ Convert.ToString(data[i+2],16)+") -> " ;
-
-                        data[i+2] = TwoToSixCoder(First2Bit(data[i+2]),xc);
-
-                        // s+=(Convert.ToString(data[i+2],16)+"\n" );
-                        // i+=2; // move on to prevent potential false matches with replaced data...
-                    }
-                }
-            }
-            // tb(s+"Muting*"+Convert.ToString(xa,16)+"|"+Convert.ToString(xb,16)+" completed after "+ c + "matches!");
-            c=0; // should be unnecessary
-                        // System.Console.ReadKey(); // debug step-through
-            return;   // will just return last value
-
-        }
-
-        static void FindAndReplaceByte(byte xa, byte xb, byte xc, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata){ 
-            int i; int c=0; //string s="";// c is not used for anything
-            for (i=startVGMdata; i < endVGMdata; i++) {
-                if (byteflag[i]){   // if start of 3-byte command
-                    if (data[i]==xa && data[i+1]==xb){
-                        c+=1;
-                        // s+="ReplaceByte: matched 0x" + Convert.ToString(i,16)+" ("+Convert.ToString(data[i],16)+"|"+
-                        // Convert.ToString(data[i+1],16)+"|"+ Convert.ToString(data[i+2],16)+") -> " ;
-                        data[i+2] = xc;
-                        // s+=Convert.ToString(data[i+2],16)+"\n";
-                        // i+=2; // move on to prevent potential false matches with replaced data...
-                    }
-                }
-            }
-            // tb(s+"Muting*"+Convert.ToString(xa,16)+"|"+Convert.ToString(xb,16)+" completed after "+ c + "matches!");
-            c=0; // should be unnecessary
-            return;   // will just return last value
-
-        }
-        static void FindAndReplaceByte(byte xa, byte xb, byte xc, byte[] data, bool[] byteflag, int startVGMdata, int endVGMdata, byte upperthreshold){  // 
-            int i; //int c=0; string s="";
-            for (i=startVGMdata; i < endVGMdata; i++) {
-                if (data[i]==xa && data[i+1]==xb){
-                    if (byteflag[i]){   // if start of 3-byte command
-                        //c+=1;
-                        if (data[i+2] >= upperthreshold) {
-                            tb("FindAndReplaceByte @"+cts(xa,16)+" "+cts(xb,16)+": upperthreshold reached :"+Convert.ToString(data[i+2],16)+">"+cts(upperthreshold,16)+
-                            "***************** 0x"+ Convert.ToString(i,16));
-                        } else {
-                            // s+="ReplaceByte: matched 0x" + Convert.ToString(i,16)+" ("+Convert.ToString(data[i],16)+"|"+
-                            // Convert.ToString(data[i+1],16)+"|"+ Convert.ToString(data[i+2],16)+") -> " ;
-                            data[i+2] = xc;
-                            // s+=Convert.ToString(data[i+2],16)+"\n";
-
-                            // i+=2; // move on to prevent potential false matches with replaced data...
-                        }
-                    }
-                }
-            }
-            // tb("Muting*"+Convert.ToString(xa,16)+"|"+Convert.ToString(xb,16)+" completed after "+ c + "matches!");
-            //c=0; // should be unnecessary
-            return;   // will just return last value
-
-        }      
-
-
-
-
-        #endregion
-
-        #region Other math helper functions
-
         // in - blank int array sized to the VGM
         // out - every array index filled with a integer timecode (in samples). 
         //     - Header and EOF will be filled with 0s (not really irrelevant)
@@ -1966,18 +1696,41 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             for (int i = startVGMdata; i < endVGMdata; i++){
                 samples+=ParseWaits(data, i, WaitFlags); //* this has a slight issue, if wait is >1 byte this will be wrong
                 timecodes[i]=samples;
-
-
-
-
-
-
             }
             return timecodes;
         }
 
         static int SamplesToMS(int samples) {
             return Convert.ToInt32(Math.Round(samples / 44.1));
+        }
+
+        static byte[] AppendData(byte[] data, Dictionary<int, byte[]> append) { // assumes 3 bytes in dict
+
+            List<byte> datalist = new List<byte>(data); //? can this be improved? having to convert from array to list to array
+            foreach (var cmd in append.OrderByDescending(x => x.Key)) {
+                // datalist.Insert(cmd.Key, cmd.Value);
+                datalist.InsertRange(cmd.Key, cmd.Value);
+
+            }
+            return datalist.ToArray<byte>();    // Maybe always have data in list form?
+        }
+        // static byte[] AppendData(byte[] data, Lookup<int, byte[]> append) { // assumes 3 bytes in lookup
+
+        //     List<byte> datalist = new List<byte>(data); //? can this be improved? having to convert from array to list to array
+        //     foreach (var cmd in append.OrderByDescending(x => x.Key)) {
+        //         // datalist.Insert(cmd.Key, cmd.Value);
+        //         datalist.InsertRange(cmd.Key, cmd.);
+
+        //     }
+        //     return datalist.ToArray<byte>();    // Maybe always have data in list form?
+        // }
+
+        static int AppenderCount(Dictionary<int, byte[]> appender) {
+            int c=0;
+            foreach (var kv in appender) {
+                c+=kv.Value.Count();
+            }
+            return c;
         }
 
         static byte HighestCommonFactor(int[] numbers)
@@ -1995,29 +1748,70 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             return b == 0 ? a : GCD(b, a % b);
         }
 
-        public static bool IsVolCommand(byte d1, byte d2, byte d3, byte chip, byte cmd, int op, int idx) { // unused, quite old
-            // if (!byteflag) {     // redundant - handled in main loop now 
-            //     tb("IsVolCommand hit mask @ 0x"+Convert.ToString(idx,16); 
-            //     return false;
-            // }
-            if (chip==0x5A && op > 2) return false;  // OPL2: skip > 2-operator
-            if (d1==chip && d2==cmd) {          // if we have a potential match...
-                if (chip==0x5A) return true;    // don't bother bit-shifting for OPL2's 2/6 bit key/TL...
-                if (d3 > 0x7f) {               // 7f is the min volume. Anything higher is probably erroneous!
-                    tb("IfIsCommand: skipping erroneous match @ 0x"+Convert.ToString(idx,16)+" "+cts(d1,16)+cts(d2,16)+cts(d3,16) );
-                    Console.ReadKey(); // debug. but this should not trip anymore!!
-                    return false; // OPM: This is catching 54 61 B9 - FM1.op1_TL is 54 61 XX, but 61 B9 XX is a wait command.
-                } else {
-                    return true;
-                }
-            } else {return false;}
-        }
-
-
-
-
 
         #endregion
+
+
+        #region Bitwise function jungle
+        static byte KillFirstTwoBits(byte b) { return (byte)(b & 0b00111111);}
+        static byte First4Bit(byte b){return (byte)(b >> 4); }
+        // static int First4Bit_Int(byte b){return (int)(b >> 4); }
+        static byte Second4Bit(byte b){return (byte)(b & 0x0F); }
+        static byte First5Bit(byte b){return (byte)(b >> 3); }
+        static byte Last3Bit(byte b){return (byte)(b & 0x07); }
+        static byte FiveToEightCoder(byte value1, byte value2) { //? untested
+            byte returnValue = 0;
+            returnValue += value1;              //Write value1;
+            returnValue *= 32;              //move it 5 bit left
+            returnValue += value2;              //write value2
+            return returnValue;
+        }
+        static int First4BitToInt(byte b){return Convert.ToInt32((byte)(b >> 4) ); } // could overload but probably better to just remember
+        static int Second4BitToInt(byte b){return Convert.ToInt32((byte)(b & 0x0F) ); }
+        static byte FourToEightCoder(byte value1, byte value2){             //Check if both values are below 16
+            byte returnValue = 0;                           //If not, throw an argument exception
+            returnValue += value1;              //Write value1;
+            returnValue *= 16;              //move it 4 bit left
+            returnValue += value2;              //write value2
+            return returnValue;
+        }
+        static byte First2Bit(byte b){return (byte)(b >> 6); }
+        static byte Second6Bit(byte b){return (byte)(b & 0x3F);}
+        static byte TwoToSixCoder(byte value1, byte value2){  
+            byte returnValue = 0;   
+            returnValue += value1;              //Write value1;
+            returnValue *= 64;              //move it 6 bit left
+            returnValue += value2;              //write value2
+            return returnValue;
+        }
+        static string GetBinary(byte b){ return Convert.ToString(b,2).PadLeft(8, '0');} // for debug
+        static int Get32BitInt(byte[] d, byte i){ return BitConverter.ToInt32(d,i);}
+        static int Get32BitInt(byte[] d, int i){ return BitConverter.ToInt32(d,i);}
+
+        static byte SecondBit(byte b){
+            b = (byte)(b << 1); // erase first bit
+            b = (byte)(b >> 7); // move to first // THIS MIGHT FLOOD THE BYTE WITH ONES...
+            return b;  
+        }
+        static byte CodeSecondBit(byte byt, byte b2){
+            if (b2>=0x01){
+                return (byte) (byt | 0b01000000); // 0x40 = 0b01000000 
+
+            } else {
+                return (byte) (byt & ~0b01000000); // ~ inverts byte mask
+            }
+        }
+        static byte LastBit(byte b){
+            b = (byte)(b << 7); // erase first 7 bits
+            b = (byte)(b >> 7); // move to first
+            return b;  
+        }
+        static byte ReplaceFirstHalfByte(byte xa, byte dt){  // for setting DT. in:byte, int DT value (0-7)
+            return FourToEightCoder(dt, Second4Bit(xa)); // DT|ML
+        }
+
+        #endregion
+
 
         #region String-based helper functions (for exceptions, display, debug etc)
 
@@ -2036,7 +1830,21 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             tb("PSA: "+s+ " (L="+strA.Length+")");
         }
 
-
+        static void PrintDictionary(Dictionary<string,int> d) {
+            foreach (var kv in d) {
+                tb(kv.Key+" "+kv.Value);
+            }
+        }
+        static void PrintDictionary(Dictionary<byte,byte> d) {
+            foreach (var kv in d) {
+                tb(kv.Key+" "+kv.Value);
+            }
+        }
+        static void PrintDictionary(Dictionary<string,byte> d) {
+            foreach (var kv in d) {
+                tb(kv.Key+" "+cts(kv.Value,16));
+            }
+        }
 
         static void PatchKey_Error(string arg) {
             tb("Invalid patchkey "+arg+"  continuing...");
@@ -2122,68 +1930,69 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
         #endregion
 
+
         static void debugstart() {
             // bool debug = true;
             bool debug = false;
             if (!debug) return;
 
 
-            Console.ReadKey();
+
+            // * testing loops with delegates
+            var arr = new byte[]{0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e};
+
+            ModifyByte KillSecondNibble = delegate(byte b) {
+                var tmp=(byte)(b >> 4);
+                return (byte)(tmp << 4);
+            };
+            ModifyByte NoOp = delegate(byte b) {
+                return b;
+            };
+
+            // var tpl = new Tuple<byte, byte, ModifyByte>();
+
+            // var dict = new Dictionary<byte, ModifyByte>();
+            arr.ToList().ForEach(b => tb("0x_"+Convert.ToString(b,16) ));
+
+            var instructions = new Dictionary<byte,ModifyByte>(){
+                {0x11, NoOp},
+                {0x12, KillSecondNibble},
+                {0x13, KillSecondNibble},
+                {0x14, KillSecondNibble},
+                {0x15, KillSecondNibble},
+                {0x16, KillSecondNibble},
+                {0x17, KillSecondNibble},
+                {0x18, KillSecondNibble},
+                {0x1a, NoOp},
+                {0x1b, NoOp},
+                {0x1c, NoOp},
+                {0x1d, NoOp},
+                {0x1e, NoOp},
+                {0x1f, NoOp}
+            };
+
+            // foreach (byte b in arr) {
+            //     if (instructions.ContainsKey(b)) {
+            //         instructions[b](b);      // can't assign to foreach variables
+            //     }
+            // }
+
+            for (int i = 0; i < arr.Length; i++) {
+                if (instructions.ContainsKey(arr[i])) {
+                    arr[i] = instructions[arr[i]](arr[i]);
+                }
+            }
+
+            arr.ToList().ForEach(b => tb("0x_"+Convert.ToString(b,16) ));
+
+
+            tb("debugstart: End of Code");Console.ReadKey();
 
         }
         
-        static int AppenderCount(Dictionary<int, byte[]> appender) {
-            int c=0;
-            foreach (var kv in appender) {
-                c+=kv.Value.Count();
-            }
-            return c;
-        }
-
-        // static byte[] RemovePokeysToThresh(byte[] data, byte[] byteflags,){ // dumb idea
-
-        // }
-
-        static byte[] AppendData(byte[] data, Dictionary<int, byte[]> append) { // assumes 3 bytes in dict
-
-            List<byte> datalist = new List<byte>(data); //? can this be improved? having to convert from array to list to array
-            foreach (var cmd in append.OrderByDescending(x => x.Key)) {
-                // datalist.Insert(cmd.Key, cmd.Value);
-                datalist.InsertRange(cmd.Key, cmd.Value);
-
-            }
-            return datalist.ToArray<byte>();    // Maybe always have data in list form?
-        }
-        // static byte[] AppendData(byte[] data, Lookup<int, byte[]> append) { // assumes 3 bytes in lookup
-
-        //     List<byte> datalist = new List<byte>(data); //? can this be improved? having to convert from array to list to array
-        //     foreach (var cmd in append.OrderByDescending(x => x.Key)) {
-        //         // datalist.Insert(cmd.Key, cmd.Value);
-        //         datalist.InsertRange(cmd.Key, cmd.);
-
-        //     }
-        //     return datalist.ToArray<byte>();    // Maybe always have data in list form?
-        // }
 
 
-        static void PrintDictionary(Dictionary<string,int> d) {
-            foreach (var kv in d) {
-                tb(kv.Key+" "+kv.Value);
-            }
-        }
-        static void PrintDictionary(Dictionary<byte,byte> d) {
-            foreach (var kv in d) {
-                tb(kv.Key+" "+kv.Value);
-            }
-        }
-
-        static void PokeyMe(byte[] data, int pos){
-            data[pos] = 0xBB;
-            data[pos+1] = 0x00;
-            data[pos+2] = 0x00;
-        }
-
-
+    // todo investigating frequency modified detune
 	// compute the keycode: block_freq is:
 	//
 	//     BBBFFFFFFFFFFF
@@ -2219,8 +2028,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 	// detune adjustment
 	// cache.detune = detune_adjustment(op_detune(opoffs), keycode);
 // 
-
-    // todo investigating frequency modified detune. vv via YMFM source vv
+    // todo vv via YMFM source vv
     //-------------------------------------------------
     //  detune_adjustment - given a 5-bit key code
     //  value and a 3-bit detune parameter, return a
@@ -2247,16 +2055,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
         // return bitfield(detune, 2) ? -result : result;
         return result;
     }
-
-
-
-static int[,] array2Da = new int[4, 2] { { 1, 2 }, { 3, 4 }, { 5, 6 }, { 7, 8 } };
-
-
-
-
-
-
 
 
 
