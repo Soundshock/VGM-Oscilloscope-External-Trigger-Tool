@@ -286,7 +286,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             // tb("syslist & channellist lengths: "+FMSystemList.Count+" "+FMChannel2List.Count);
             operators=FMChannel2List[0].operators;
             
-
             if (args[0].ToUpper()=="SOLO" || args[0].ToUpper()=="SOLOVGM" || args[0].ToUpper()=="MONO"){
                 if (args[0].ToUpper()=="MONO") {tb("EXTT: Error! No such argument: MONO. Did you mean SOLO / SOLOVGM?"); Environment.Exit(1);};
                 var solovgm = new EXTT.SoloVGM.Program();
@@ -297,25 +296,10 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
             // var StrOpsToChs = new List<string>(){"TL","DTML","WAVEFORM","VIB"};
             if (chiptype == 0x52 || chiptype == 0x55 || chiptype == 0x58 || chiptype == 0x56) {
-                FMChannel2List[2].Add(TIMER_LOAD_SAVE, FMSystemList[0][TIMER_LOAD_SAVE]); // have ch#3 track ch#3 mode (second bit of this system reg)
+                FMChannel2List[2].Add(TIMER_LOAD_SAVE, FMSystemList[0][TIMER_LOAD_SAVE]); // have FM2 track ch#3 mode (second bit of this system reg)
             }
-            foreach (FMchannel2 ch in FMChannel2List) { // ? does ch.Initialize makes everything else in here obsolete?
-                if (operators == 2) {
-                    ch.Add("TL1",ch.Op1["TL"]);ch.Add("TL2",ch.Op2["TL"]);  // todo this should all be in REF_LABEL_REG_OPS | REF_REG_LABEL_OPS
-                    ch.Add("DTML1",ch.Op1["DTML"]);ch.Add("DTML2",ch.Op2["DTML"]);
-                
-                    ch.Add("WAVEFORM1",ch.Op1["WAVEFORM"]);ch.Add("WAVEFORM2",ch.Op2["WAVEFORM"]);      // special?
-                    ch.Add("VIB1",ch.Op1["DR_LFO_AM_ENABLE"]);ch.Add("VIB2",ch.Op2["DR_LFO_AM_ENABLE"]);
-                }
-                if (operators == 4) {
-                    ch.Add("TL1",ch.Op1["TL"]);ch.Add("TL2",ch.Op2["TL"]);
-                    ch.Add("TL3",ch.Op3["TL"]);ch.Add("TL4",ch.Op4["TL"]);
-                    ch.Add("DTML1",ch.Op1["DTML"]);ch.Add("DTML2",ch.Op2["DTML"]);
-                    ch.Add("DTML3",ch.Op3["DTML"]);ch.Add("DTML4",ch.Op4["DTML"]);
-                    // ch.Add("WAVEFORM1",ch.Op1["WAVEFORM"]);ch.Add("WAVEFORM2",ch.Op2["WAVEFORM"]);   // YM2414 (DX11 TX81)
-                    // ch.Add("WAVEFORM3",ch.Op3["WAVEFORM"]);ch.Add("WAVEFORM4",ch.Op4["WAVEFORM"]);
-                }
-                ch.Initialize(); // populate merged ops, reverse dictionaries
+            foreach (FMchannel2 ch in FMChannel2List) {
+                ch.Initialize(); // merge operator label_reg dicts into channel (ex. ch.op2.dtml becomes ch.dtml2), initialize reverse dictionaries
             }
 
             #endregion
@@ -363,7 +347,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
 
             for (int i = 0; i < FMChannel2List.Count; i++) {
-                // if (i == 2) { // debug
+                // if (i == 17) { // debug
                 AutoTrigger(FMChannel2List[i], ChannelArgumentList[i], data, byteflag, WaitFlags, startVGMdata, endVGMdata, timecodes);
                 // }
             }
@@ -446,7 +430,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
 
                 WaitFlags = new bool[data.Count()];
-                ExamineVGMData(data, chiptype, startVGMdata, (endVGMdata+AppendCnt), ref WaitFlags, false);
+                ExamineVGMData(data, chiptype, startVGMdata, (endVGMdata+AppendCnt), ref WaitFlags, true);
                 // timecodes=CreateTimeCode(timecodes, data, WaitFlags, startVGMdata, endVGMdata + AppendCnt); // count samples, int value for every byte shows current 
                 int LoopPointIDX_2 = FindLoopPoint(samples_to_loop, data, WaitFlags, startVGMdata, (endVGMdata+AppendCnt));
 
@@ -472,8 +456,10 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             }
 
             // PT 5 - Save output VGM
-
-            if (GlobalArguments.bankexport == 1) {
+            if (GlobalArguments.bankexport == 1 && FMChannel2List[0].operators==2) {
+                tb("Bank Export: Error! OPL not supported (YM2608ToneEditor .bank format)");
+            }
+            if (GlobalArguments.bankexport == 1 && FMChannel2List[0].operators==4) {
                 var patches_tmp = new List<Dictionary<string,int>>();
                 foreach (Arguments FMargs in ChannelArgumentList) {
                     // FMargs.index;
@@ -544,9 +530,8 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             using (FileStream fs = File.Create(outfile)) {
                 fs.Write(data, 0, data.Length);
             }                
-            tb("Complete");
+            tb("EXTT v{0}.{1}{2} Complete",VERSIONMAJOR,VERSIONMINOR,VERSIONPATCH);
             Environment.Exit(0);
-            // System.Console.ReadKey(); // pause
             #endregion
         }
 
@@ -1023,22 +1008,25 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             }
             // static int lastidx_DTML1, lastidx_DTML2, lastidx_DTML3, lastidx_DTML4; // unused
             static int muteA=1, muteB=2, muteC=3;
-            public int outop=4;
+            public int outop=0;
             public int currentTLoutOP = 0;
             public string Triggerify(byte[] data, Arguments FMargs, int currentIDX, int[] timecodes) {
                 string str="";
                 //* Triggerify Part 1 / 4: if any DT (or DT idx) is empty then log & skip. Should only occur with early garbage data...
                 // str=FMref.name+": !WARNING!: 0x"+Convert.ToString(lastidx,16)+": MISSING ";
                 bool warn=false;
-                // string[] fullpatch = new string[]{"DTML1","DTML2","DTML3","DTML4","TL1","TL2","TL3","TL4"};
-                string[] fullpatch = new string[]{"DTML1","DTML2","DTML3","DTML4"};
+                // string[] fullpatch = new string[]{"DTML","TL"};
+                string[] fullpatch = new string[]{"DTML"};
 
-                foreach (string p in fullpatch) {
-                    if (LABEL_IDX(p) == 0) {
-                        str+=p+" idx=0(!) "; warn=true;
-                    } else {
-                        str+=p+"="+LABEL_IDX(p)+" ";
+                foreach (string s in fullpatch) {   // look for DTML1 DTML2 DTML3 DTML4
+                    for (int i = 1; i < operators+1; i++) {
+                        if (LABEL_IDX(s+i) == 0) {
+                            str+=s+i+" idx=0(!) "; warn=true;
+                        // } else {
+                        //     str+=s+i+"="+LABEL_IDX(s+i)+" ";
+                        }
                     }
+                    // tb(FMref.name+"chip :"+Convert.ToString(FMref.chip,16)+" :"+str); Console.ReadKey();
                 }
 
                 str+=" ... lag+"+(currentIDX - lastidx)+" bytes";
@@ -1059,7 +1047,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                         datavalues.Add(wave1, 0); // wave register is very unlikely to be in data, but patchkey syntax will remain the same
                         datavalues.Add(wave2, 0);
                     }
-                    datavalues.Add(alg, Convert.ToInt32(LastBit(LABEL_VAL(alg) ) ) );
+                    datavalues.Add(alg, Convert.ToInt32(LastBit(LABEL_VAL(FEEDBACK_ALG) ) ) );
                     datavalues.Add(vibrato1,Convert.ToInt32(SecondBit(LABEL_VAL("DTML1") ) ) );
                     datavalues.Add(vibrato2,Convert.ToInt32(SecondBit(LABEL_VAL("DTML2") ) ) );
                     datavalues.Add(mult1, Second4BitToInt(LABEL_VAL("DTML1"))); 
@@ -1268,7 +1256,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 if (ByteFlags[i] && data[i]==fMregisters.chip) // data is structured in 3 bytes: [chip][reg][value]   [chip]=ByteFlags true
                 { 
                     if (fMregisters.REG_VAL.ContainsKey(data[i+1]) ) { //* REG_VAL will begin with all necessary keys for patchkey
-                        fMregisters.REG_IDX[data[i+1]] = i; //? REG_IDX isn't doing as much as it used to. Remove for simplicity? (instead use LastDTMLidx?)
+                        fMregisters.REG_IDX[data[i+1]] = i; 
                         fMregisters.REG_VAL[data[i+1]] = data[i+2];
                         // tb("0x"+Convert.ToString(i,16) + " added reg "+Convert.ToString(data[+1],16));
                     } else { // * add other registers. This is only necessary for .bank output
@@ -1376,7 +1364,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             } else {
                 byteswap[FMin.REF_LABEL_REG[FEEDBACK_ALG]] = 0x07;    // OPN
             }
-            // TODO mono output? should this be an argument? OPM stereo is in FEEDBACK_ALG, OPNx is in LFO_CHANNEL_SENSITIVITY
+            // TODO mono output? should this be an argument? OPM stereo is in FEEDBACK_ALG, OPNx is in LFO_CHANNEL_SENSITIVITY, OPL3 FEEDBACK_ALG
 
             // PrintDictionary(byteswap); Console.ReadKey();
 
@@ -1462,7 +1450,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     case 0x62: WaitFlags[i]=true; break;
                     case 0x63: WaitFlags[i]=true; break;
                     // case 0x66: i=end; tb("end reached @ 0x"+i); break; // end of sound data
-                    case 0x66: i=end; tb("ExamineVGMdata: 0x66 end byte reached @ 0x"+Convert.ToString(i,16) ); break; // end of sound data
+                    case 0x66: i=end; if (!quiet) tb("ExamineVGMdata: 0x66 end byte reached @ 0x"+Convert.ToString(i,16) ); break; // end of sound data
                     // case 0x66: i=end; break; // end of sound data
                     case 0x67: // data block: 0x67 0x66 tt ss ss ss ss (data)
                         int tmp=Get32BitInt(data,i+3);
@@ -1492,7 +1480,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                         i+=2; // all FM chip commands are 3-byte values
                         c++; // count up all our commands
                     } else {
-                        tb("ExamineVGMData: UNKNOWN COMMAND @0x"+(Convert.ToString(i,16))+": 0x"+Convert.ToString(data[i],16));
+                        if (!quiet) tb("ExamineVGMData: UNKNOWN COMMAND @0x"+(Convert.ToString(i,16))+": 0x"+Convert.ToString(data[i],16));
                     }
                     toif=false;
                 }
@@ -1805,6 +1793,11 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             b = (byte)(b << 7); // erase first 7 bits
             b = (byte)(b >> 7); // move to first
             return b;  
+        }
+        static byte LastBit(int b){
+            b = (byte)(b << 7); // erase first 7 bits
+            b = (byte)(b >> 7); // move to first
+            return Convert.ToByte(b);  
         }
         static byte ReplaceFirstHalfByte(byte xa, byte dt){  // for setting DT. in:byte, int DT value (0-7)
             return FourToEightCoder(dt, Second4Bit(xa)); // DT|ML
