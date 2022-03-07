@@ -73,7 +73,7 @@ namespace EXTT.SoloVGM
                     tb("SoloVGM: Ambiguous ADPCM, assuming ADPCMB"); 
                     args[i]="ADPCMB"; // let's assume it's the single ADPCM-B
                 }
-                if (args[i] == "PCM") { // OPN2 DAC synonym
+                if (args[i] == "PCM") { // OPN2 DAC synonym  --- note use .replace next time
                     args[i]="DAC";
                 }
                 if (args[i] == "RSS") { // ADPCMA synonym
@@ -98,12 +98,17 @@ namespace EXTT.SoloVGM
                 }
             }
 
+
+
             if (DisplayValidCommands) {
                 foreach (string s in ValidCommands) {str+=s+" ";}
                 tb("SoloVGM: Valid commands for this chip="+str); str="";
             }
-                tb("SoloVGM: Soloing these channels="+suff);
-
+            tb("SoloVGM: Soloing these channels="+suff);
+            if (suff.Length < 1) {
+                tb("SoloVGM: Error! No valid commands specified!");
+                Environment.Exit(1);
+            }
 
             // need to make a list of 3-bytes. First byte chip (accomodate 2 banks)
             // second byte register
@@ -116,18 +121,20 @@ namespace EXTT.SoloVGM
             }
 
             // * handle Ch3 Extended Mode
-            if (!MuteChannels.Contains("OP1") || !MuteChannels.Contains("OP2") || !MuteChannels.Contains("OP3") || !MuteChannels.Contains("OP4")) {
-                if (MuteChannels.Contains("OP1")) MuteCmds.Add(Tuple.Create(FMChannelList[2].chip, FMChannelList[2].REF_LABEL_REG["TL1"], FMmuteValue));
-                if (MuteChannels.Contains("OP2")) MuteCmds.Add(Tuple.Create(FMChannelList[2].chip, FMChannelList[2].REF_LABEL_REG["TL2"], FMmuteValue));
-                if (MuteChannels.Contains("OP3")) MuteCmds.Add(Tuple.Create(FMChannelList[2].chip, FMChannelList[2].REF_LABEL_REG["TL3"], FMmuteValue));
-                if (MuteChannels.Contains("OP4")) MuteCmds.Add(Tuple.Create(FMChannelList[2].chip, FMChannelList[2].REF_LABEL_REG["TL4"], FMmuteValue));
+            if (chiptype == 0x52 || chiptype == 0x55 || chiptype == 0x56 || chiptype == 0x58) { // opn only
+                if (!MuteChannels.Contains("OP1") || !MuteChannels.Contains("OP2") || !MuteChannels.Contains("OP3") || !MuteChannels.Contains("OP4")) {
+                    if (MuteChannels.Contains("OP1")) MuteCmds.Add(Tuple.Create(FMChannelList[2].chip, FMChannelList[2].REF_LABEL_REG["TL1"], FMmuteValue));
+                    if (MuteChannels.Contains("OP2")) MuteCmds.Add(Tuple.Create(FMChannelList[2].chip, FMChannelList[2].REF_LABEL_REG["TL2"], FMmuteValue));
+                    if (MuteChannels.Contains("OP3")) MuteCmds.Add(Tuple.Create(FMChannelList[2].chip, FMChannelList[2].REF_LABEL_REG["TL3"], FMmuteValue));
+                    if (MuteChannels.Contains("OP4")) MuteCmds.Add(Tuple.Create(FMChannelList[2].chip, FMChannelList[2].REF_LABEL_REG["TL4"], FMmuteValue));
 
-                if (MuteChannels.Contains("FM2")) { // So we don't mute all operators when we're trying to isolate Ch#3 extended mode voices
-                    MuteChannels.Remove("FM2");
+                    if (MuteChannels.Contains("FM2")) { // So we don't mute all operators when we're trying to isolate Ch#3 extended mode voices
+                        MuteChannels.Remove("FM2");
+                    } 
+                } else if (MuteChannels.Contains("FM2")) { // * so we aren't redundantly checking to mute both FM2 and FM2's operators
+                    MuteChannels.Remove("OP1"); MuteChannels.Remove("OP2"); MuteChannels.Remove("OP3"); MuteChannels.Remove("OP4");
                 } 
-            } else if (MuteChannels.Contains("FM2")) { // * so we aren't redundantly checking to mute both FM2 and FM2's operators
-                MuteChannels.Remove("OP1"); MuteChannels.Remove("OP2"); MuteChannels.Remove("OP3"); MuteChannels.Remove("OP4");
-            } 
+            }
 
             // * Handle general FM channels
             foreach (data2.FMchannel2 Ch in FMChannelList) {
@@ -177,8 +184,9 @@ namespace EXTT.SoloVGM
             // tb("tuple cnt="+MuteCmds.Count);
             // tb("data cnt="+data.Length);
             // foreach (var tpl in MuteCmds) {
-            //     tb(tpl.Item1+" "+tpl.Item2+" "+tpl.Item3);
+            //     tb(Convert.ToString(tpl.Item1,16)+" "+Convert.ToString(tpl.Item2,16)+" "+Convert.ToString(tpl.Item3,16) );
             // }
+            // Console.ReadKey();
 
             bool[] WaitFlags = new bool[endVGMdata];
             bool[] ByteFlags = EXTT.Program.ExamineVGMData(data, FMChannelList[0].chip, startVGMdata, endVGMdata, ref WaitFlags, true);
@@ -203,7 +211,7 @@ namespace EXTT.SoloVGM
             tb("SoloVGM: Muted {0} Commands",c);
 
             string outfile=filename+"_Solovgm"+suff+".vgm";
-            tb("Writing "+outfile);
+            tb("SoloVGM: Writing "+outfile);
 
             if (File.Exists(outfile)) {
                 File.Delete(outfile);
@@ -212,7 +220,7 @@ namespace EXTT.SoloVGM
                 fs.Write(data, 0, data.Length);
             }              
 
-            tb("SoloVGM: End of Code");
+            tb("SoloVGM: Complete!\n");
             Environment.Exit(0);
 
 
