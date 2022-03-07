@@ -453,10 +453,6 @@ namespace EXTT
             FMsystem.Add(RHYTHM_OPL, 0x04);
             FMsystem.Add(CSM_MODE_OPL, 0x08);
 
-            // FMsystem.Add(TESTREGISTER2_OPL3, 0x01); // bank 2? hmm
-            // FMsystem.Add(OPL3_4OP_ENABLE, 0x04); // bank 2?
-            // FMsystem.Add(OPL3_NEW, 0x05); // bank 2?
-
             ch0.Add(FNUM_LSB,0xA0);
             ch1.Add(FNUM_LSB,0xA1);
             ch2.Add(FNUM_LSB,0xA2);
@@ -544,25 +540,15 @@ namespace EXTT
                 FMsystem2.Add(TESTREGISTER2_OPL3, 0x01); // bank 2
                 FMsystem2.Add(OPL3_4OP_ENABLE, 0x04); // bank 2
                 FMsystem2.Add(OPL3_NEW, 0x05); // bank 2
+                
                 byte bank2 = Convert.ToByte(chipcode+1); // OPL3 bank 2: 0x5F
                 var ch9 = new FMchannel2("FM9",2, bank2); var ch10 = new FMchannel2("FM10",2, bank2); var ch11 = new FMchannel2("FM11",2, bank2); var ch12 = new FMchannel2("FM12",2, bank2);
                 var ch13 = new FMchannel2("FM13",2, bank2); var ch14 = new FMchannel2("FM14",2, bank2); var ch15 = new FMchannel2("FM15",2, bank2); var ch16 = new FMchannel2("FM16",2, bank2);
                 var ch17 = new FMchannel2("FM17",2, bank2);
 
-
                 FMChannel2List.Add(ch9); FMChannel2List.Add(ch10); FMChannel2List.Add(ch11);
                 FMChannel2List.Add(ch12); FMChannel2List.Add(ch13); FMChannel2List.Add(ch14);
                 FMChannel2List.Add(ch15); FMChannel2List.Add(ch16); FMChannel2List.Add(ch17);
-
-                FMsystem.Add(TESTREGISTER, 0x01); // third bit OPL compatibility mode (OPL2 only)
-                FMsystem.Add(TIMER_A_MSB, 0x02);
-                FMsystem.Add(TIMER_B, 0x03);
-                FMsystem.Add(RHYTHM_OPL, 0x04);
-                FMsystem.Add(CSM_MODE_OPL, 0x08);
-
-                // FMsystem.Add(TESTREGISTER2_OPL3, 0x01); // bank 2? hmm
-                // FMsystem.Add(OPL3_4OP_ENABLE, 0x04); // bank 2?
-                // FMsystem.Add(OPL3_NEW, 0x05); // bank 2?
 
                  ch9.Add(FNUM_LSB,0xA0);
                 ch10.Add(FNUM_LSB,0xA1);
