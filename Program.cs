@@ -29,16 +29,19 @@ using System.IO.Compression; // gzip decompression
             eventually I'll add a soloVGM option to split the channel of the source VGM
 
     Bugfixes:
+    bugfixes with early VGMs with very tiny headers
     Fixed a bug in the timecode generation (ParseWaits was incorrectly using a signed int16)
     Added more stuff to ExamineVGMData (hopefully no more UNKNOWN COMMAND spam)
 
     TODO
+    todo concerned about desyncs... maybe don't always use last DTML. prioritize later OPs if they're close together somehow?
     todo confirm ForceOP works. can it be integrated into patchkey? seems to work
     todo test OPL make sure that works
-    TODO figure out how to soloVGM ym2612 DAC
     todo migrate ParseArguments to global rather than static?
 
     better ch3 mode maybe? Triggerify check alg to see if it's appropriate to downscale mult? 
+
+    add Sega PSG to SoloVGM
 
     Granular Detune via frequency
         This requires math formulas for converting BLOCK-FNUM to DT for OPN, and another for OPM which uses BLOCK-KEY-KEYFRACTION
@@ -254,29 +257,29 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             int endVGMdata = (Get32BitInt(data,0x04)+0x04); // tb("DEBUG: VGM data end point: 0x"+Convert.ToString(endVGMdata,16) );
             if (Get32BitInt(data,0x10) > 0) {
                 tb("Chip Detection: 0x10 "+Get32BitInt(data,0x10)+" YM2413 clock rate found but chip not supported!");
-            } else if (Get32BitInt(data,0x30) > 0) {
+            } else if (Get32BitInt(data,0x30) > 0 && startVGMdata > 0x30) { // * v050 check header length using startvgm data - old VGMs have very tiny headers
                 chiptype=0x54; tb("Chip Detection: 0x30 clockrate: "+Get32BitInt(data,0x30)+" YM2151 OPM found");
-            } else if (Get32BitInt(data,0x44) > 0){
+            } else if (Get32BitInt(data,0x44) > 0 && startVGMdata > 0x44){
                 chiptype=0x55; tb("Chip Detection: 0x44 clockrate: "+Get32BitInt(data,0x44)+" YM2203 OPN found"); 
-            } else if (Get32BitInt(data,0x48) > 0){
+            } else if (Get32BitInt(data,0x48) > 0 && startVGMdata > 0x48){
                 chiptype=0x56; tb("Chip Detection: 0x48 clockrate: "+Get32BitInt(data,0x48)+" YM2608 OPNA found"); 
-            } else if (Get32BitInt(data,0x4C) > 0){
+            } else if (Get32BitInt(data,0x4C) > 0 && startVGMdata > 0x4c){
                 chiptype=0x58; tb("Chip Detection: 0x4C clockrate: "+Get32BitInt(data,0x4C)+" YM2610 OPNB found"); 
-            } else if (Get32BitInt(data,0x50) > 0){
+            } else if (Get32BitInt(data,0x50) > 0 && startVGMdata > 0x50){
                 chiptype=0x5A; tb("Chip Detection: 0x50 clockrate: "+Get32BitInt(data,0x50)+" YM3812 OPL2 found"); 
-            } else if (Get32BitInt(data,0x54) > 0){
+            } else if (Get32BitInt(data,0x54) > 0 && startVGMdata > 0x54){
                 chiptype=0x5b; tb("Chip Detection: 0x54 clockrate: "+Get32BitInt(data,0x54)+" YM3526 OPL found"); 
-            } else if (Get32BitInt(data,0x58) > 0){
+            } else if (Get32BitInt(data,0x58) > 0 && startVGMdata > 0x58){
                 chiptype=0x5c; tb("Chip Detection: 0x58 clockrate: "+Get32BitInt(data,0x58)+" MSX-AUDIO Y8950 (OPL) found"); 
-            } else if (Get32BitInt(data,0x5C) > 0){
+            } else if (Get32BitInt(data,0x5C) > 0 && startVGMdata > 0x5c){
                 chiptype=0x5E; tb("Chip Detection: 0x5C clockrate: "+Get32BitInt(data,0x5C)+" YMF262 OPL3 found"); 
-            } else if (Get32BitInt(data,0x60) > 0){
+            } else if (Get32BitInt(data,0x60) > 0 && startVGMdata > 0x60){
                 tb("Chip Detection: 0x60 "+Get32BitInt(data,0x60)+" YMF278 OPL4 found, but not supported!");
                 // chiptype=0x60; tb("Chip Detection: 0x60 clockrate: "+Get32BitInt(data,0x60)+" YMF278 OPL4 found"); // 
-            } else if (Get32BitInt(data,0x64) > 0){
+            } else if (Get32BitInt(data,0x64) > 0 && startVGMdata > 0x64){
                 tb("Chip Detection: 0x64 "+Get32BitInt(data,0x64)+" YMF271 OPX found, but not supported!");
                 // chiptype=0x64; tb("Chip Detection: 0x60 clockrate: "+Get32BitInt(data,0x64)+" YMF271 OPX found"); // 
-            } else if (Get32BitInt(data,0x2C) > 0) {
+            } else if (Get32BitInt(data,0x2C) > 0 && startVGMdata > 0x2c) {
                 chiptype=0x52; tb("Chip Detection: 0x2C clockrate: "+Get32BitInt(data,0x2C)+" YM2612 OPN2 or YM3438 OPN2C found"); // check OPN2 last, as OPN2 DAC tends to be repurposed 
             }  
             
