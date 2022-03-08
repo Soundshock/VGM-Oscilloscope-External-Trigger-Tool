@@ -377,7 +377,7 @@ namespace EXTT
             ch1.Op1.Add(SSGEG_ENABLE_ENVELOPE, 0x91); ch1.Op3.Add(SSGEG_ENABLE_ENVELOPE, 0x95); ch1.Op2.Add(SSGEG_ENABLE_ENVELOPE, 0x99); ch1.Op4.Add(SSGEG_ENABLE_ENVELOPE, 0x9D); 
             ch2.Op1.Add(SSGEG_ENABLE_ENVELOPE, 0x92); ch2.Op3.Add(SSGEG_ENABLE_ENVELOPE, 0x96); ch2.Op2.Add(SSGEG_ENABLE_ENVELOPE, 0x9A); ch2.Op4.Add(SSGEG_ENABLE_ENVELOPE, 0x9E); 
 
-            if (chipcode > 0x52) { // 6 channels. technically YM2610 only has four, but it still works like YM2608 with two banks of registers
+            if (chipcode < 0x55 || chipcode > 0x55) { // 0x55=opn1. rest have 6 channels. YM2610 only has four, but it still works like YM2608 with two banks of registers
 
                 byte bank2 = Convert.ToByte(chipcode+1);
                 // tb("data2.cs: bank2 = "+Convert.ToString(bank2,16) );
