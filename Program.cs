@@ -8,7 +8,7 @@ using System.IO.Compression; // gzip decompression
 // vvv to publish with dependencies - but it'll be like 30 megs
 // dotnet publish -r win-x64 -c Release /p:PublishSingleFile=true /p:PublishTrimmed=true
 
-/* 0v05 experimental
+/* 0v05
     Note:
     The program now will remove and add commands to the vgm. This is the only way to make the triggers more reliable, but
     it's possible it may cause sync issues with some VGM players
@@ -16,7 +16,7 @@ using System.IO.Compression; // gzip decompression
     Major Features:
     Added YM2608ToneEditor .bank export (out_bank.cs). To enable: [EXTT.exe] bank 1 [file]
     Added .VGZ support (gzip compressed VGM)
-    Added SoloVGM functionality, for muting channels with hard edits. To use: [EXTT.exe] SOLOVGM [list of space separated channels]
+    Added SoloVGM functionality, for muting channels with hard edits. To use: [EXTT.exe] SOLOVGM [list of channels to solo separated by spaces]
     FORCEOP returns, this time defaulting to 0 (auto), which will use the last DTML in the detected patch
         forceop "auto" should be more reliable with 'incomplete' patches, or MULT sweeps
     OPL3 Support (preliminary, 4-operator mode might be weird or broken)
@@ -24,22 +24,18 @@ using System.IO.Compression; // gzip decompression
     Minor Features:
     OPM DT2 and OPN Ch#3 Extended Mode is now noted in the Patch Report
         for dealing with DT2, for best results check the reported ratios and adjust MULT to best available denominator (with mult0 being 0.5)
-            but you will have to do this manually for now
-        for ch#3 mode, you'll have to use FORCEOP
-            eventually I'll add a soloVGM option to split the channel of the source VGM
+            but you will have to do this manually for now. Still, the odd frequencies may not track well.
+        for ch#3 mode, best results are with FORCEOP and then running extt multiple times for each voice
+            Alternatively, you can use SoloVGM and mute the operators from the EXTT vgm that way
 
     Bugfixes:
-    bugfixes with early VGMs with very tiny headers
+    fixed bad chip detection with YM2413 or YM2612 VGMs with very tiny headers
     Fixed a bug in the timecode generation (ParseWaits was incorrectly using a signed int16)
     Added more stuff to ExamineVGMData (hopefully no more UNKNOWN COMMAND spam)
 
-    TODO
-    todo concerned about desyncs... maybe don't always use last DTML. prioritize later OPs if they're close together somehow?
-    todo confirm ForceOP works. can it be integrated into patchkey? seems to work
-    todo test OPL make sure that works
-    todo migrate ParseArguments to global rather than static?
-
+    todo
     better ch3 mode maybe? Triggerify check alg to see if it's appropriate to downscale mult? 
+    concerned about desyncs... maybe don't always use last DTML. prioritize later OPs if they're close together somehow?
 
     add Sega PSG to SoloVGM
 
@@ -47,7 +43,7 @@ using System.IO.Compression; // gzip decompression
         This requires math formulas for converting BLOCK-FNUM to DT for OPN, and another for OPM which uses BLOCK-KEY-KEYFRACTION
             DT affects the phase directly. The relationship between pitch and detune is logarithmic, maybe. 
 
-    Integrate MonofyVGM, soloVGM(done). Most VGM players do not support OPN Ch#3 extended masking so the latter may be very useful
+    Integrate MonofyVGM
 
     OPLL, OPL4, OPX support: OPLL is quite different from OPL. OPL4 uses a 4-byte VGM command instead of 3. I have no idea what OPX is
 
@@ -147,7 +143,7 @@ namespace EXTT
 Supported chips are these Yamaha FM synths: OPM, OPN, OPNA, OPNB, OPN2, OPL, Y8950, OPL2 
 Available options (4operator FM): DT(def 10), FORCEOP (def 0, auto) Mult(def 99, auto)
 Available options (2operator OPL2): Mult(unspecified / automatic, again this is not recommended)
-Special options: BANK (def 0)  ... YM2608ToneEditor .bank export, 4-op only
+Special options: BANK (def 0)  ... YM2608ToneEditor .bank export, 4-op only. To Use: EXE Bank 1 InFile.VGZ
                  SOLOVGM [Arguments]  ... Mute channels. Example: EXE SSG0 InFile.VGZ would solo SSG0
 Advanced options: Patch ""PatchKey Commands"" 
 
@@ -171,7 +167,7 @@ Press any key to continue...";
 4-Operator FM Synth PatchKey Syntax: 
 ""patch""           patch info                           commands
 v      v                                v v                                   v 
-PATCH ""M1-M2-M3-M4 / DT1-DT2-DT3-DT4 ALG DT(desired) MULT(desired, optional)""
+PATCH ""M1-M2-M3-M4 / DT1-DT2-DT3-DT4 ALG DT(desired) MULT(desired, optional) FORCEOP (desired, optional)""
 
 2-Operator FM Synth PatchKey Syntax:
 PATCH ""WAVEFORM1-WAVEFORM1-ALG-VIBRATO1-VIBRATO2 / MULT1-MULT2 VIBRATO(desired) MULT(desired, optional)""
@@ -608,8 +604,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                         OPL2 waves (last two bits) (int -> string via ReturnWaveTypeString)
                         0 Sine      1 Half Sine (Half-wave rectified)
                         2 ABS Sine (Full-wave rectified)     3 Quarter Sine
-
-                        todo - OPM DT2?
                     */
                     if (value=="P") {CleanPatchReport=true; return false;} // if P P
                     string s=""; //* debug
@@ -1287,8 +1281,17 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                             LastDTMLidx = i; LastDTMLnmbr = 4;
                         }
                     }
-
                 }
+
+                // ? 4-op question... which operator should we use?
+                // v040 behavior: only choose operator 4 (causes problems if op 4 data is missing)
+                // v042 behavior: use whichever is last (works well, even with mult sweeps)
+                // I'm concerned that using the last operator may be throwing off the phase in some cases 
+                // KEY OFF .... PATCH DATA ... KEY ON  
+                // then it should work perfectly
+                // but if KEY ON - PATCH DATA then it's probably bad? god idk
+
+
                 if (BeginDelay && WaitFlags[i]) {
                     Lag += ParseWaits(data,i,WaitFlags);
                     if (Lag >= LagThreshold) {
