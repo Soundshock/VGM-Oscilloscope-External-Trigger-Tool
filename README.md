@@ -7,9 +7,10 @@ Supported chips: OPM, OPN, OPNA, OPNB, OPN2, OPL, Y8950, OPL2
 
 # Instructions
 This is a command line program. Alternatively, you can drag & drop to produce a file at default settings. The command -h or opening the .exe with no arguments will bring up help info.
-Outputs a new VGM of trigger waveforms which will then have to be rendered externally
 
 Usage: EXE [options] Infile.VGZ"
+
+Output: a new VGM of trigger waveforms which will then have to be rendered externally
 
 Available options for 4-operator DT(def 10), Mult(def unspecified/auto), FORCEOP (def unspecified/auto)
 
@@ -18,7 +19,8 @@ Available options for 2-operator OPL2: Mult(def unspecified/auto), VIBRATO(def u
 Advanced options: Patch "PatchKey Commands" (see -help)
 
 Special options: BANK (def 0)  ... YM2608ToneEditor .bank export, 4-op only. To Use: EXE Bank 1 InFile.VGZ
-                 SOLOVGM [Arguments]  ... Mute channels. Example: EXE SSG0 InFile.VGZ would solo SSG0
+
+Special options: SOLOVGM [Arguments]  ... Mute channels. Example: EXE SSG0 InFile.VGZ would solo SSG0
 
 Options may be set globally or per-channel, by preceding an option with a 'FM#' command (zero-bound)
 
