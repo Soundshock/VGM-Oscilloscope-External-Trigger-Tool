@@ -5,6 +5,7 @@ using System.IO;
 using System;
 
 using data2=EXTT.Program;
+using extt=EXTT;
 
 //! OPM OPNx only!!!
 
@@ -20,26 +21,28 @@ namespace EXTT.SoloVGM
 
 
 
-        public void SoloVGM(byte[] data, string[] args, byte chiptype, int startVGMdata, int endVGMdata, string filename, 
-                            List<Dictionary<string,byte>> FMSystemList, List<data2.FMchannel2> FMChannelList) 
+        public void SoloVGM(byte[] data, bool[] ByteFlags, string[] args, byte chiptype, int startVGMdata, int endVGMdata, string filename, 
+                            List<Dictionary<string,byte>> FMSystemList, List<data2.FMchannel> FMChannelList) 
         {
 
 
-            foreach (data2.FMchannel2 Ch in FMChannelList) { // initialize our channels
-                Ch.Initialize(); // populates merged ops, reverse dictionaries
-            }
+            // foreach (data2.FMchannel Ch in FMChannelList) { // initialize our channels
+            //     Ch.Initialize(); // populates merged ops, reverse dictionaries
+            // }
 
             // tb("SoloVGM: Running");
             string str=""; // debug but also help display
 
             var MuteChannels = new List<string>(); // Populate list with everything possible, then remove arguments from it. 
             var ValidCommands = new List<string>();
-            ValidCommands.Add("FM");
+            // ValidCommands.Add("FM");
+            MuteChannels.Add("FM"); // special
             for (int i = 0; i < FMChannelList.Count; i++) {
                 MuteChannels.Add("FM"+i);
             }
             if (chiptype==0x55 || chiptype==0x56 || chiptype==0x58) {
-                ValidCommands.Add("SSG");
+                // ValidCommands.Add("SSG");
+                MuteChannels.Add("SSG");
                 MuteChannels.Add("SSG0");MuteChannels.Add("SSG1");MuteChannels.Add("SSG2");
             }
             if (chiptype==0x52 || chiptype==0x55 || chiptype==0x56 || chiptype==0x58) {
@@ -68,6 +71,7 @@ namespace EXTT.SoloVGM
             // bool DisplayValidCommands=false;
             bool DisplayValidCommands=true; // DEBUG
             for (int i = 1; i < args.Length-1; i++) {args[i]=args[i].ToUpper() ;}
+            tb("hi");
             for (int i = 1; i < args.Length-1; i++) {
                 if (args[i] == "ADPCM") {
                     tb("SoloVGM: Ambiguous ADPCM, assuming ADPCMB"); 
@@ -85,7 +89,7 @@ namespace EXTT.SoloVGM
                     if (MuteChannels.Contains("SSG2")) MuteChannels.Remove("SSG2");
                 }
                 if (args[i] == "FM") {
-                    for (int ii = 0; ii < FMChannelList.Count; i++) {
+                    for (int ii = 0; ii < FMChannelList.Count; ii++) {
                         if (MuteChannels.Contains("FM"+ii)) MuteChannels.Remove("FM"+ii);
                     }
                 }
@@ -97,8 +101,10 @@ namespace EXTT.SoloVGM
                     tb("SoloVGM: Invalid or Duplicate Command "+args[i]); DisplayValidCommands=true;
                 }
             }
+            MuteChannels.Remove("FM"); 
+            if (MuteChannels.Contains("SSG")) MuteChannels.Remove("SSG");
 
-
+            
 
             if (DisplayValidCommands) {
                 foreach (string s in ValidCommands) {str+=s+" ";}
@@ -137,8 +143,8 @@ namespace EXTT.SoloVGM
             }
 
             // * Handle general FM channels
-            foreach (data2.FMchannel2 Ch in FMChannelList) {
-                Ch.Initialize(); // populate merged ops, reverse dictionaries
+            foreach (data2.FMchannel Ch in FMChannelList) {
+                // Ch.Initialize(); // populate merged ops, reverse dictionaries
                 if (MuteChannels.Contains(Ch.name)) {
                     MuteCmds.Add(Tuple.Create(Ch.chip, Ch.REF_LABEL_REG["TL1"], FMmuteValue));
                     MuteCmds.Add(Tuple.Create(Ch.chip, Ch.REF_LABEL_REG["TL2"], FMmuteValue));
@@ -172,7 +178,7 @@ namespace EXTT.SoloVGM
 
             // * Handle DAC (OPN2)
             // TODO not sure about this one
-            // if (MuteChannels.Contains("DAC")) 
+            if (MuteChannels.Contains("DAC")) MuteCmds.Add(Tuple.Create(FMChannelList[0].chip, (byte)0x2B,(byte)0x00));
 
 
 
@@ -188,8 +194,8 @@ namespace EXTT.SoloVGM
             // }
             // Console.ReadKey();
 
-            bool[] WaitFlags = new bool[endVGMdata];
-            bool[] ByteFlags = EXTT.Program.ExamineVGMData(data, FMChannelList[0].chip, startVGMdata, endVGMdata, ref WaitFlags, true);
+            // bool[] WaitFlags = new bool[endVGMdata];
+            // bool[] ByteFlags = EXTT.Program.ExamineVGMData(true);
 
 
             int c=0;

@@ -13,7 +13,7 @@ namespace EXTT
         // public static readonly WriteDelegate tb = Console.WriteLine; 
         // delegate string WriteDelegate2(byte msg, int tobase);
 
-        public class FMchannel2 {
+        public class FMchannel {
             public readonly string name="FMx";
             public byte chip = 0;    // or, bank
             public int operators = 0;
@@ -22,7 +22,7 @@ namespace EXTT
             public Dictionary<string, byte> Op2;
             public Dictionary<string, byte> Op3;
             public Dictionary<string, byte> Op4;
-            public FMchannel2(string name, int ops, byte chip){
+            public FMchannel(string name, int ops, byte chip){
                 this.name=name; this.operators = ops; this.chip = chip;
                 channel = Int32.Parse(name.Substring(2) ); 
                 // tb(name+": channel="+channel); // debug
@@ -112,13 +112,9 @@ namespace EXTT
         }
 
 
-        public class FMoperator2 {
-
-        }
-
     #region System-Wide Registers ------------
     internal const string TESTREGISTER = "TESTREGISTER"; // 0x21 OPM OPN, 0x01 OPL (third bit is OPL compatibility mode!)
-    internal const string KEYON_OFF = "KEYON_OFF"; // 4321--XX Operator flags / channel select
+    internal const string KEYON_OFF = "KEYON_OFF"; // -4321XXX Operator flags / channel select (OPN chs are 0-1-2 4-5-6)
     internal const string NOISEENABLE = "NOISEENABLE"; // OPM 0x0F
     internal const string TIMER_A_MSB = "TIMER_A_MSB"; // OPL only has 1 byte for this
     internal const string TIMER_A_LSB = "TIMER_A_LSB"; 
@@ -183,147 +179,146 @@ namespace EXTT
 
     #region Channel-Wide Registers ------------
 
-        // OPM - LRXXXYYY Stereo / Feedback / Alg
-        // OPNA- --XXXYYY Feedback / Alg
-        // OPL - XXXXYYYZ - CHD/CHC/CHB/CHA output (OPL3 only) / Feedback / ALG
-        internal const string FEEDBACK_ALG = "FEEDBACK_ALG"; // on OPM, first two bits are Stereo. OPL3+ contains stereo / channel routing
-        internal const string KEY_CODE = "KEY_CODE"; // OPM
-        internal const string KEY_FRACTION = "KEY_FRACTION"; // OPM
+    // OPM - LRXXXYYY Stereo / Feedback / Alg
+    // OPNA- --XXXYYY Feedback / Alg
+    // OPL - XXXXYYYZ - CHD/CHC/CHB/CHA output (OPL3 only) / Feedback / ALG
+    internal const string FEEDBACK_ALG = "FEEDBACK_ALG"; // on OPM, first two bits are Stereo. OPL3+ contains stereo / channel routing
+    internal const string KEY_CODE = "KEY_CODE"; // OPM
+    internal const string KEY_FRACTION = "KEY_FRACTION"; // OPM
 
 
-        // OPM 38-3F -xxx--yy LFO PM sensitivity / LFO AM shift  
-        // OPNA: B4-B7 XXYY-ZZZ LR Pan / AM Shift / PM Depth
-        internal const string LFO_CHANNEL_SENSITIVITY = "LFO_CHANNEL_SENSITIVITY"; // different for OPM and OPNA. OPNA contains stereo
+    // OPM 38-3F -xxx--yy LFO PM sensitivity / LFO AM shift  
+    // OPNA: B4-B7 XXYY-ZZZ LR Pan / AM Shift / PM Depth
+    internal const string LFO_CHANNEL_SENSITIVITY = "LFO_CHANNEL_SENSITIVITY"; // different for OPM and OPNA. OPNA contains stereo
 
-        internal const string FNUM_LSB = "FNUM_LSB"; // OPN
-        internal const string FNUM_MSB = "FNUM_MSB"; // OPN   A4-A7 --xxxyyy Block (0-7) / Frequency number upper 3 bits
-        internal const string FNUM_MSB_KEYON_OPL = "FNUM_MSB_KEYON_OPL"; // OPL - --XYYYZZ KeyOn / Block / 2-bit FNUM MSB
+    internal const string FNUM_LSB = "FNUM_LSB"; // OPN
+    internal const string FNUM_MSB = "FNUM_MSB"; // OPN   A4-A7 --xxxyyy Block (0-7) / Frequency number upper 3 bits
+    internal const string FNUM_MSB_KEYON_OPL = "FNUM_MSB_KEYON_OPL"; // OPL - --XYYYZZ KeyOn / Block / 2-bit FNUM MSB
     #endregion
 
     #region Operator-Wide Registers -----------
 
-        internal const string DTML = "DTML"; // -XXXYYYY     OPL no DT, instead XXXXYYYY AM enable / PM enable / EG type / KSR - MULT
-        internal const string TL = "TL"; // -XXXXXXX     OPL is XXYYYYYY KSL(!) / TL
-        internal const string AR_KSR = "AR_KSR"; // XX-YYYYY OPM/OPN ONLY
-        internal const string AR_DR_OPL = "AR_DR_OPL"; //! OPL only
-        internal const string DR_LFO_AM_ENABLE = "DR_LFO_AM_ENABLE"; // X--YYYYY LFO AM Enable / Decay Rate. Same LFO reg for OPNA and OPM
-        internal const string SR_DT2 = "SR_DT2"; //! NO OPL. XX-YYYYY DT2 / SR. (DT2 cut from OPN to make Chowning cry)
-        internal const string SL_RR = "SL_RR"; // XXXXYYYY
-        internal const string SSGEG_ENABLE_ENVELOPE = "SSGEG_ENABLE_ENVELOPE"; // ----XYYY SSG-EG enable / SSG-EG envelope (0-7) OPN series only
-        internal const string WAVEFORM = "WAVEFORM"; // -----XXX OPL3, ------XX OPL2, also -XXX---- OPZ...
-
+    internal const string DTML = "DTML"; // -XXXYYYY     OPL no DT, instead XXXXYYYY AM enable / PM enable / EG type / KSR - MULT
+    internal const string TL = "TL"; // -XXXXXXX     OPL is XXYYYYYY KSL / TL
+    internal const string AR_KSR = "AR_KSR"; // XX-YYYYY OPM/OPN ONLY
+    internal const string AR_DR_OPL = "AR_DR_OPL"; //! OPL only
+    internal const string DR_LFO_AM_ENABLE = "DR_LFO_AM_ENABLE"; // X--YYYYY LFO AM Enable / Decay Rate. Same LFO reg for OPNA and OPM
+    internal const string SR_DT2 = "SR_DT2"; //! NO OPL. XX-YYYYY DT2 / SR. (DT2 cut from OPN to make Chowning cry)
+    internal const string SL_RR = "SL_RR"; // XXXXYYYY
+    internal const string SSGEG_ENABLE_ENVELOPE = "SSGEG_ENABLE_ENVELOPE"; // ----XYYY SSG-EG enable / SSG-EG envelope (0-7) OPN series only
+    internal const string WAVEFORM = "WAVEFORM"; // -----XXX OPL3, ------XX OPL2, also -XXX---- OPZ...
 
     #endregion
 
 
-    public static void SetupData2(byte chipcode, out List<Dictionary<string,byte>> FMSystemList, out List<FMchannel2> FMChannel2List) {
+    public static void SetupData2(byte chipcode, out List<Dictionary<string,byte>> FMSystemList, out List<FMchannel> FMChannel2List) {
 //         // FM system registers, FM channel byteisters
         var FMsystem = new Dictionary<string,byte>(); // usually just one of these except OPL3 which has two
         FMSystemList = new List<Dictionary<string,byte>>();
         FMSystemList.Add(FMsystem);
-        FMChannel2List = new List<FMchannel2>();
+        FMChannel2List = new List<FMchannel>();
 
         #region OPM YM2151 / OPP YM2164 --------------
         if (chipcode==0x54) {
-        FMsystem.Add(TESTREGISTER, 0x01);
-        FMsystem.Add(KEYON_OFF, 0x08);
-        FMsystem.Add(NOISEENABLE, 0x0F);
-        FMsystem.Add(TIMER_A_MSB, 0x10);
-        FMsystem.Add(TIMER_A_LSB, 0x11);
-        FMsystem.Add(TIMER_B, 0x12);
-        FMsystem.Add(TIMER_LOAD_SAVE, 0x14);
-        FMsystem.Add(OPM_LFO_FREQUENCY, 0x18);
-        FMsystem.Add(OPM_LFO_AM_PM_DEPTH, 0x19);
-        FMsystem.Add(OPM_LFO_WAVEFORM, 0x1B);
+            FMsystem.Add(TESTREGISTER, 0x01);
+            FMsystem.Add(KEYON_OFF, 0x08);
+            FMsystem.Add(NOISEENABLE, 0x0F);
+            FMsystem.Add(TIMER_A_MSB, 0x10);
+            FMsystem.Add(TIMER_A_LSB, 0x11);
+            FMsystem.Add(TIMER_B, 0x12);
+            FMsystem.Add(TIMER_LOAD_SAVE, 0x14);
+            FMsystem.Add(OPM_LFO_FREQUENCY, 0x18);
+            FMsystem.Add(OPM_LFO_AM_PM_DEPTH, 0x19);
+            FMsystem.Add(OPM_LFO_WAVEFORM, 0x1B);
 
-        var ch0 = new FMchannel2("FM0",4, 0x54); var ch1 = new FMchannel2("FM1",4, 0x54); var ch2 = new FMchannel2("FM2",4, 0x54); var ch3 = new FMchannel2("FM3",4, 0x54);
-        var ch4 = new FMchannel2("FM4",4, 0x54); var ch5 = new FMchannel2("FM5",4, 0x54); var ch6 = new FMchannel2("FM6",4, 0x54); var ch7 = new FMchannel2("FM7",4, 0x54);
-        FMChannel2List = new List<FMchannel2>(){ch0, ch1, ch2, ch3, ch4, ch5, ch6, ch7};
+            var ch0 = new FMchannel("FM0",4, 0x54); var ch1 = new FMchannel("FM1",4, 0x54); var ch2 = new FMchannel("FM2",4, 0x54); var ch3 = new FMchannel("FM3",4, 0x54);
+            var ch4 = new FMchannel("FM4",4, 0x54); var ch5 = new FMchannel("FM5",4, 0x54); var ch6 = new FMchannel("FM6",4, 0x54); var ch7 = new FMchannel("FM7",4, 0x54);
+            FMChannel2List = new List<FMchannel>(){ch0, ch1, ch2, ch3, ch4, ch5, ch6, ch7};
 
-        ch0.Add(FEEDBACK_ALG, 0x20); ch1.Add(FEEDBACK_ALG, 0x21); ch2.Add(FEEDBACK_ALG, 0x22); ch3.Add(FEEDBACK_ALG, 0x23);
-        ch4.Add(FEEDBACK_ALG, 0x24); ch5.Add(FEEDBACK_ALG, 0x25); ch6.Add(FEEDBACK_ALG, 0x26); ch7.Add(FEEDBACK_ALG, 0x27);
+            ch0.Add(FEEDBACK_ALG, 0x20); ch1.Add(FEEDBACK_ALG, 0x21); ch2.Add(FEEDBACK_ALG, 0x22); ch3.Add(FEEDBACK_ALG, 0x23);
+            ch4.Add(FEEDBACK_ALG, 0x24); ch5.Add(FEEDBACK_ALG, 0x25); ch6.Add(FEEDBACK_ALG, 0x26); ch7.Add(FEEDBACK_ALG, 0x27);
 
-        ch0.Add(KEY_CODE, 0x28); 
-        ch1.Add(KEY_CODE, 0x29); 
-        ch2.Add(KEY_CODE, 0x2a); 
-        ch3.Add(KEY_CODE, 0x2b); 
-        ch4.Add(KEY_CODE, 0x2c); 
-        ch5.Add(KEY_CODE, 0x2d); 
-        ch6.Add(KEY_CODE, 0x2e); 
-        ch7.Add(KEY_CODE, 0x2f); 
+            ch0.Add(KEY_CODE, 0x28); 
+            ch1.Add(KEY_CODE, 0x29); 
+            ch2.Add(KEY_CODE, 0x2a); 
+            ch3.Add(KEY_CODE, 0x2b); 
+            ch4.Add(KEY_CODE, 0x2c); 
+            ch5.Add(KEY_CODE, 0x2d); 
+            ch6.Add(KEY_CODE, 0x2e); 
+            ch7.Add(KEY_CODE, 0x2f); 
 
-        ch0.Add(KEY_FRACTION, 0x30);
-        ch1.Add(KEY_FRACTION, 0x31);
-        ch2.Add(KEY_FRACTION, 0x32);
-        ch3.Add(KEY_FRACTION, 0x33);
-        ch4.Add(KEY_FRACTION, 0x34);
-        ch5.Add(KEY_FRACTION, 0x35);
-        ch6.Add(KEY_FRACTION, 0x36);
-        ch7.Add(KEY_FRACTION, 0x37);
+            ch0.Add(KEY_FRACTION, 0x30);
+            ch1.Add(KEY_FRACTION, 0x31);
+            ch2.Add(KEY_FRACTION, 0x32);
+            ch3.Add(KEY_FRACTION, 0x33);
+            ch4.Add(KEY_FRACTION, 0x34);
+            ch5.Add(KEY_FRACTION, 0x35);
+            ch6.Add(KEY_FRACTION, 0x36);
+            ch7.Add(KEY_FRACTION, 0x37);
 
-        ch0.Add(LFO_CHANNEL_SENSITIVITY, 0x38);
-        ch1.Add(LFO_CHANNEL_SENSITIVITY, 0x39);
-        ch2.Add(LFO_CHANNEL_SENSITIVITY, 0x3A);
-        ch3.Add(LFO_CHANNEL_SENSITIVITY, 0x3B);
-        ch4.Add(LFO_CHANNEL_SENSITIVITY, 0x3C);
-        ch5.Add(LFO_CHANNEL_SENSITIVITY, 0x3D);
-        ch6.Add(LFO_CHANNEL_SENSITIVITY, 0x3E);
-        ch7.Add(LFO_CHANNEL_SENSITIVITY, 0x3F);
+            ch0.Add(LFO_CHANNEL_SENSITIVITY, 0x38);
+            ch1.Add(LFO_CHANNEL_SENSITIVITY, 0x39);
+            ch2.Add(LFO_CHANNEL_SENSITIVITY, 0x3A);
+            ch3.Add(LFO_CHANNEL_SENSITIVITY, 0x3B);
+            ch4.Add(LFO_CHANNEL_SENSITIVITY, 0x3C);
+            ch5.Add(LFO_CHANNEL_SENSITIVITY, 0x3D);
+            ch6.Add(LFO_CHANNEL_SENSITIVITY, 0x3E);
+            ch7.Add(LFO_CHANNEL_SENSITIVITY, 0x3F);
 
 
-        ch0.Op1.Add(DTML, 0x40); ch0.Op3.Add(DTML, 0x48); ch0.Op2.Add(DTML, 0x50); ch0.Op4.Add(DTML, 0x58);
-        ch1.Op1.Add(DTML, 0x41); ch1.Op3.Add(DTML, 0x49); ch1.Op2.Add(DTML, 0x51); ch1.Op4.Add(DTML, 0x59);
-        ch2.Op1.Add(DTML, 0x42); ch2.Op3.Add(DTML, 0x4A); ch2.Op2.Add(DTML, 0x52); ch2.Op4.Add(DTML, 0x5A);
-        ch3.Op1.Add(DTML, 0x43); ch3.Op3.Add(DTML, 0x4B); ch3.Op2.Add(DTML, 0x53); ch3.Op4.Add(DTML, 0x5B);
-        ch4.Op1.Add(DTML, 0x44); ch4.Op3.Add(DTML, 0x4C); ch4.Op2.Add(DTML, 0x54); ch4.Op4.Add(DTML, 0x5C);
-        ch5.Op1.Add(DTML, 0x45); ch5.Op3.Add(DTML, 0x4D); ch5.Op2.Add(DTML, 0x55); ch5.Op4.Add(DTML, 0x5D);
-        ch6.Op1.Add(DTML, 0x46); ch6.Op3.Add(DTML, 0x4E); ch6.Op2.Add(DTML, 0x56); ch6.Op4.Add(DTML, 0x5E);
-        ch7.Op1.Add(DTML, 0x47); ch7.Op3.Add(DTML, 0x4F); ch7.Op2.Add(DTML, 0x57); ch7.Op4.Add(DTML, 0x5F);
+            ch0.Op1.Add(DTML, 0x40); ch0.Op3.Add(DTML, 0x48); ch0.Op2.Add(DTML, 0x50); ch0.Op4.Add(DTML, 0x58);
+            ch1.Op1.Add(DTML, 0x41); ch1.Op3.Add(DTML, 0x49); ch1.Op2.Add(DTML, 0x51); ch1.Op4.Add(DTML, 0x59);
+            ch2.Op1.Add(DTML, 0x42); ch2.Op3.Add(DTML, 0x4A); ch2.Op2.Add(DTML, 0x52); ch2.Op4.Add(DTML, 0x5A);
+            ch3.Op1.Add(DTML, 0x43); ch3.Op3.Add(DTML, 0x4B); ch3.Op2.Add(DTML, 0x53); ch3.Op4.Add(DTML, 0x5B);
+            ch4.Op1.Add(DTML, 0x44); ch4.Op3.Add(DTML, 0x4C); ch4.Op2.Add(DTML, 0x54); ch4.Op4.Add(DTML, 0x5C);
+            ch5.Op1.Add(DTML, 0x45); ch5.Op3.Add(DTML, 0x4D); ch5.Op2.Add(DTML, 0x55); ch5.Op4.Add(DTML, 0x5D);
+            ch6.Op1.Add(DTML, 0x46); ch6.Op3.Add(DTML, 0x4E); ch6.Op2.Add(DTML, 0x56); ch6.Op4.Add(DTML, 0x5E);
+            ch7.Op1.Add(DTML, 0x47); ch7.Op3.Add(DTML, 0x4F); ch7.Op2.Add(DTML, 0x57); ch7.Op4.Add(DTML, 0x5F);
 
-        ch0.Op1.Add(TL, 0x60); ch0.Op3.Add(TL, 0x68); ch0.Op2.Add(TL, 0x70); ch0.Op4.Add(TL, 0x78);
-        ch1.Op1.Add(TL, 0x61); ch1.Op3.Add(TL, 0x69); ch1.Op2.Add(TL, 0x71); ch1.Op4.Add(TL, 0x79);
-        ch2.Op1.Add(TL, 0x62); ch2.Op3.Add(TL, 0x6A); ch2.Op2.Add(TL, 0x72); ch2.Op4.Add(TL, 0x7A);
-        ch3.Op1.Add(TL, 0x63); ch3.Op3.Add(TL, 0x6B); ch3.Op2.Add(TL, 0x73); ch3.Op4.Add(TL, 0x7B);
-        ch4.Op1.Add(TL, 0x64); ch4.Op3.Add(TL, 0x6C); ch4.Op2.Add(TL, 0x74); ch4.Op4.Add(TL, 0x7C);
-        ch5.Op1.Add(TL, 0x65); ch5.Op3.Add(TL, 0x6D); ch5.Op2.Add(TL, 0x75); ch5.Op4.Add(TL, 0x7D);
-        ch6.Op1.Add(TL, 0x66); ch6.Op3.Add(TL, 0x6E); ch6.Op2.Add(TL, 0x76); ch6.Op4.Add(TL, 0x7E);
-        ch7.Op1.Add(TL, 0x67); ch7.Op3.Add(TL, 0x6F); ch7.Op2.Add(TL, 0x77); ch7.Op4.Add(TL, 0x7F);
+            ch0.Op1.Add(TL, 0x60); ch0.Op3.Add(TL, 0x68); ch0.Op2.Add(TL, 0x70); ch0.Op4.Add(TL, 0x78);
+            ch1.Op1.Add(TL, 0x61); ch1.Op3.Add(TL, 0x69); ch1.Op2.Add(TL, 0x71); ch1.Op4.Add(TL, 0x79);
+            ch2.Op1.Add(TL, 0x62); ch2.Op3.Add(TL, 0x6A); ch2.Op2.Add(TL, 0x72); ch2.Op4.Add(TL, 0x7A);
+            ch3.Op1.Add(TL, 0x63); ch3.Op3.Add(TL, 0x6B); ch3.Op2.Add(TL, 0x73); ch3.Op4.Add(TL, 0x7B);
+            ch4.Op1.Add(TL, 0x64); ch4.Op3.Add(TL, 0x6C); ch4.Op2.Add(TL, 0x74); ch4.Op4.Add(TL, 0x7C);
+            ch5.Op1.Add(TL, 0x65); ch5.Op3.Add(TL, 0x6D); ch5.Op2.Add(TL, 0x75); ch5.Op4.Add(TL, 0x7D);
+            ch6.Op1.Add(TL, 0x66); ch6.Op3.Add(TL, 0x6E); ch6.Op2.Add(TL, 0x76); ch6.Op4.Add(TL, 0x7E);
+            ch7.Op1.Add(TL, 0x67); ch7.Op3.Add(TL, 0x6F); ch7.Op2.Add(TL, 0x77); ch7.Op4.Add(TL, 0x7F);
 
-        ch0.Op1.Add(AR_KSR, 0x80); ch0.Op3.Add(AR_KSR, 0x88); ch0.Op2.Add(AR_KSR, 0x90); ch0.Op4.Add(AR_KSR, 0x98);
-        ch1.Op1.Add(AR_KSR, 0x81); ch1.Op3.Add(AR_KSR, 0x89); ch1.Op2.Add(AR_KSR, 0x91); ch1.Op4.Add(AR_KSR, 0x99);
-        ch2.Op1.Add(AR_KSR, 0x82); ch2.Op3.Add(AR_KSR, 0x8A); ch2.Op2.Add(AR_KSR, 0x92); ch2.Op4.Add(AR_KSR, 0x9A);
-        ch3.Op1.Add(AR_KSR, 0x83); ch3.Op3.Add(AR_KSR, 0x8B); ch3.Op2.Add(AR_KSR, 0x93); ch3.Op4.Add(AR_KSR, 0x9B);
-        ch4.Op1.Add(AR_KSR, 0x84); ch4.Op3.Add(AR_KSR, 0x8C); ch4.Op2.Add(AR_KSR, 0x94); ch4.Op4.Add(AR_KSR, 0x9C);
-        ch5.Op1.Add(AR_KSR, 0x85); ch5.Op3.Add(AR_KSR, 0x8D); ch5.Op2.Add(AR_KSR, 0x95); ch5.Op4.Add(AR_KSR, 0x9D);
-        ch6.Op1.Add(AR_KSR, 0x86); ch6.Op3.Add(AR_KSR, 0x8E); ch6.Op2.Add(AR_KSR, 0x96); ch6.Op4.Add(AR_KSR, 0x9E);
-        ch7.Op1.Add(AR_KSR, 0x87); ch7.Op3.Add(AR_KSR, 0x8F); ch7.Op2.Add(AR_KSR, 0x97); ch7.Op4.Add(AR_KSR, 0x9F);
+            ch0.Op1.Add(AR_KSR, 0x80); ch0.Op3.Add(AR_KSR, 0x88); ch0.Op2.Add(AR_KSR, 0x90); ch0.Op4.Add(AR_KSR, 0x98);
+            ch1.Op1.Add(AR_KSR, 0x81); ch1.Op3.Add(AR_KSR, 0x89); ch1.Op2.Add(AR_KSR, 0x91); ch1.Op4.Add(AR_KSR, 0x99);
+            ch2.Op1.Add(AR_KSR, 0x82); ch2.Op3.Add(AR_KSR, 0x8A); ch2.Op2.Add(AR_KSR, 0x92); ch2.Op4.Add(AR_KSR, 0x9A);
+            ch3.Op1.Add(AR_KSR, 0x83); ch3.Op3.Add(AR_KSR, 0x8B); ch3.Op2.Add(AR_KSR, 0x93); ch3.Op4.Add(AR_KSR, 0x9B);
+            ch4.Op1.Add(AR_KSR, 0x84); ch4.Op3.Add(AR_KSR, 0x8C); ch4.Op2.Add(AR_KSR, 0x94); ch4.Op4.Add(AR_KSR, 0x9C);
+            ch5.Op1.Add(AR_KSR, 0x85); ch5.Op3.Add(AR_KSR, 0x8D); ch5.Op2.Add(AR_KSR, 0x95); ch5.Op4.Add(AR_KSR, 0x9D);
+            ch6.Op1.Add(AR_KSR, 0x86); ch6.Op3.Add(AR_KSR, 0x8E); ch6.Op2.Add(AR_KSR, 0x96); ch6.Op4.Add(AR_KSR, 0x9E);
+            ch7.Op1.Add(AR_KSR, 0x87); ch7.Op3.Add(AR_KSR, 0x8F); ch7.Op2.Add(AR_KSR, 0x97); ch7.Op4.Add(AR_KSR, 0x9F);
 
-        ch0.Op1.Add(DR_LFO_AM_ENABLE, 0xA0); ch0.Op3.Add(DR_LFO_AM_ENABLE, 0xA8); ch0.Op2.Add(DR_LFO_AM_ENABLE, 0xB0); ch0.Op4.Add(DR_LFO_AM_ENABLE, 0xB8);
-        ch1.Op1.Add(DR_LFO_AM_ENABLE, 0xA1); ch1.Op3.Add(DR_LFO_AM_ENABLE, 0xA9); ch1.Op2.Add(DR_LFO_AM_ENABLE, 0xB1); ch1.Op4.Add(DR_LFO_AM_ENABLE, 0xB9);
-        ch2.Op1.Add(DR_LFO_AM_ENABLE, 0xA2); ch2.Op3.Add(DR_LFO_AM_ENABLE, 0xAA); ch2.Op2.Add(DR_LFO_AM_ENABLE, 0xB2); ch2.Op4.Add(DR_LFO_AM_ENABLE, 0xBA);
-        ch3.Op1.Add(DR_LFO_AM_ENABLE, 0xA3); ch3.Op3.Add(DR_LFO_AM_ENABLE, 0xAB); ch3.Op2.Add(DR_LFO_AM_ENABLE, 0xB3); ch3.Op4.Add(DR_LFO_AM_ENABLE, 0xBB);
-        ch4.Op1.Add(DR_LFO_AM_ENABLE, 0xA4); ch4.Op3.Add(DR_LFO_AM_ENABLE, 0xAC); ch4.Op2.Add(DR_LFO_AM_ENABLE, 0xB4); ch4.Op4.Add(DR_LFO_AM_ENABLE, 0xBC);
-        ch5.Op1.Add(DR_LFO_AM_ENABLE, 0xA5); ch5.Op3.Add(DR_LFO_AM_ENABLE, 0xAD); ch5.Op2.Add(DR_LFO_AM_ENABLE, 0xB5); ch5.Op4.Add(DR_LFO_AM_ENABLE, 0xBD);
-        ch6.Op1.Add(DR_LFO_AM_ENABLE, 0xA6); ch6.Op3.Add(DR_LFO_AM_ENABLE, 0xAE); ch6.Op2.Add(DR_LFO_AM_ENABLE, 0xB6); ch6.Op4.Add(DR_LFO_AM_ENABLE, 0xBE);
-        ch7.Op1.Add(DR_LFO_AM_ENABLE, 0xA7); ch7.Op3.Add(DR_LFO_AM_ENABLE, 0xAF); ch7.Op2.Add(DR_LFO_AM_ENABLE, 0xB7); ch7.Op4.Add(DR_LFO_AM_ENABLE, 0xBF);
+            ch0.Op1.Add(DR_LFO_AM_ENABLE, 0xA0); ch0.Op3.Add(DR_LFO_AM_ENABLE, 0xA8); ch0.Op2.Add(DR_LFO_AM_ENABLE, 0xB0); ch0.Op4.Add(DR_LFO_AM_ENABLE, 0xB8);
+            ch1.Op1.Add(DR_LFO_AM_ENABLE, 0xA1); ch1.Op3.Add(DR_LFO_AM_ENABLE, 0xA9); ch1.Op2.Add(DR_LFO_AM_ENABLE, 0xB1); ch1.Op4.Add(DR_LFO_AM_ENABLE, 0xB9);
+            ch2.Op1.Add(DR_LFO_AM_ENABLE, 0xA2); ch2.Op3.Add(DR_LFO_AM_ENABLE, 0xAA); ch2.Op2.Add(DR_LFO_AM_ENABLE, 0xB2); ch2.Op4.Add(DR_LFO_AM_ENABLE, 0xBA);
+            ch3.Op1.Add(DR_LFO_AM_ENABLE, 0xA3); ch3.Op3.Add(DR_LFO_AM_ENABLE, 0xAB); ch3.Op2.Add(DR_LFO_AM_ENABLE, 0xB3); ch3.Op4.Add(DR_LFO_AM_ENABLE, 0xBB);
+            ch4.Op1.Add(DR_LFO_AM_ENABLE, 0xA4); ch4.Op3.Add(DR_LFO_AM_ENABLE, 0xAC); ch4.Op2.Add(DR_LFO_AM_ENABLE, 0xB4); ch4.Op4.Add(DR_LFO_AM_ENABLE, 0xBC);
+            ch5.Op1.Add(DR_LFO_AM_ENABLE, 0xA5); ch5.Op3.Add(DR_LFO_AM_ENABLE, 0xAD); ch5.Op2.Add(DR_LFO_AM_ENABLE, 0xB5); ch5.Op4.Add(DR_LFO_AM_ENABLE, 0xBD);
+            ch6.Op1.Add(DR_LFO_AM_ENABLE, 0xA6); ch6.Op3.Add(DR_LFO_AM_ENABLE, 0xAE); ch6.Op2.Add(DR_LFO_AM_ENABLE, 0xB6); ch6.Op4.Add(DR_LFO_AM_ENABLE, 0xBE);
+            ch7.Op1.Add(DR_LFO_AM_ENABLE, 0xA7); ch7.Op3.Add(DR_LFO_AM_ENABLE, 0xAF); ch7.Op2.Add(DR_LFO_AM_ENABLE, 0xB7); ch7.Op4.Add(DR_LFO_AM_ENABLE, 0xBF);
 
-        ch0.Op1.Add(SR_DT2, 0xC0); ch0.Op3.Add(SR_DT2, 0xC8); ch0.Op2.Add(SR_DT2, 0xD0); ch0.Op4.Add(SR_DT2, 0xD8);
-        ch1.Op1.Add(SR_DT2, 0xC1); ch1.Op3.Add(SR_DT2, 0xC9); ch1.Op2.Add(SR_DT2, 0xD1); ch1.Op4.Add(SR_DT2, 0xD9);
-        ch2.Op1.Add(SR_DT2, 0xC2); ch2.Op3.Add(SR_DT2, 0xCA); ch2.Op2.Add(SR_DT2, 0xD2); ch2.Op4.Add(SR_DT2, 0xDA);
-        ch3.Op1.Add(SR_DT2, 0xC3); ch3.Op3.Add(SR_DT2, 0xCB); ch3.Op2.Add(SR_DT2, 0xD3); ch3.Op4.Add(SR_DT2, 0xDB);
-        ch4.Op1.Add(SR_DT2, 0xC4); ch4.Op3.Add(SR_DT2, 0xCC); ch4.Op2.Add(SR_DT2, 0xD4); ch4.Op4.Add(SR_DT2, 0xDC);
-        ch5.Op1.Add(SR_DT2, 0xC5); ch5.Op3.Add(SR_DT2, 0xCD); ch5.Op2.Add(SR_DT2, 0xD5); ch5.Op4.Add(SR_DT2, 0xDD);
-        ch6.Op1.Add(SR_DT2, 0xC6); ch6.Op3.Add(SR_DT2, 0xCE); ch6.Op2.Add(SR_DT2, 0xD6); ch6.Op4.Add(SR_DT2, 0xDE);
-        ch7.Op1.Add(SR_DT2, 0xC7); ch7.Op3.Add(SR_DT2, 0xCF); ch7.Op2.Add(SR_DT2, 0xD7); ch7.Op4.Add(SR_DT2, 0xDF);
+            ch0.Op1.Add(SR_DT2, 0xC0); ch0.Op3.Add(SR_DT2, 0xC8); ch0.Op2.Add(SR_DT2, 0xD0); ch0.Op4.Add(SR_DT2, 0xD8);
+            ch1.Op1.Add(SR_DT2, 0xC1); ch1.Op3.Add(SR_DT2, 0xC9); ch1.Op2.Add(SR_DT2, 0xD1); ch1.Op4.Add(SR_DT2, 0xD9);
+            ch2.Op1.Add(SR_DT2, 0xC2); ch2.Op3.Add(SR_DT2, 0xCA); ch2.Op2.Add(SR_DT2, 0xD2); ch2.Op4.Add(SR_DT2, 0xDA);
+            ch3.Op1.Add(SR_DT2, 0xC3); ch3.Op3.Add(SR_DT2, 0xCB); ch3.Op2.Add(SR_DT2, 0xD3); ch3.Op4.Add(SR_DT2, 0xDB);
+            ch4.Op1.Add(SR_DT2, 0xC4); ch4.Op3.Add(SR_DT2, 0xCC); ch4.Op2.Add(SR_DT2, 0xD4); ch4.Op4.Add(SR_DT2, 0xDC);
+            ch5.Op1.Add(SR_DT2, 0xC5); ch5.Op3.Add(SR_DT2, 0xCD); ch5.Op2.Add(SR_DT2, 0xD5); ch5.Op4.Add(SR_DT2, 0xDD);
+            ch6.Op1.Add(SR_DT2, 0xC6); ch6.Op3.Add(SR_DT2, 0xCE); ch6.Op2.Add(SR_DT2, 0xD6); ch6.Op4.Add(SR_DT2, 0xDE);
+            ch7.Op1.Add(SR_DT2, 0xC7); ch7.Op3.Add(SR_DT2, 0xCF); ch7.Op2.Add(SR_DT2, 0xD7); ch7.Op4.Add(SR_DT2, 0xDF);
 
-        ch0.Op1.Add(SL_RR, 0xE0); ch0.Op3.Add(SL_RR, 0xE8); ch0.Op2.Add(SL_RR, 0xF0); ch0.Op4.Add(SL_RR, 0xF8);
-        ch1.Op1.Add(SL_RR, 0xE1); ch1.Op3.Add(SL_RR, 0xE9); ch1.Op2.Add(SL_RR, 0xF1); ch1.Op4.Add(SL_RR, 0xF9);
-        ch2.Op1.Add(SL_RR, 0xE2); ch2.Op3.Add(SL_RR, 0xEA); ch2.Op2.Add(SL_RR, 0xF2); ch2.Op4.Add(SL_RR, 0xFA);
-        ch3.Op1.Add(SL_RR, 0xE3); ch3.Op3.Add(SL_RR, 0xEB); ch3.Op2.Add(SL_RR, 0xF3); ch3.Op4.Add(SL_RR, 0xFB);
-        ch4.Op1.Add(SL_RR, 0xE4); ch4.Op3.Add(SL_RR, 0xEC); ch4.Op2.Add(SL_RR, 0xF4); ch4.Op4.Add(SL_RR, 0xFC);
-        ch5.Op1.Add(SL_RR, 0xE5); ch5.Op3.Add(SL_RR, 0xED); ch5.Op2.Add(SL_RR, 0xF5); ch5.Op4.Add(SL_RR, 0xFD);
-        ch6.Op1.Add(SL_RR, 0xE6); ch6.Op3.Add(SL_RR, 0xEE); ch6.Op2.Add(SL_RR, 0xF6); ch6.Op4.Add(SL_RR, 0xFE);
-        ch7.Op1.Add(SL_RR, 0xE7); ch7.Op3.Add(SL_RR, 0xEF); ch7.Op2.Add(SL_RR, 0xF7); ch7.Op4.Add(SL_RR, 0xFF);
+            ch0.Op1.Add(SL_RR, 0xE0); ch0.Op3.Add(SL_RR, 0xE8); ch0.Op2.Add(SL_RR, 0xF0); ch0.Op4.Add(SL_RR, 0xF8);
+            ch1.Op1.Add(SL_RR, 0xE1); ch1.Op3.Add(SL_RR, 0xE9); ch1.Op2.Add(SL_RR, 0xF1); ch1.Op4.Add(SL_RR, 0xF9);
+            ch2.Op1.Add(SL_RR, 0xE2); ch2.Op3.Add(SL_RR, 0xEA); ch2.Op2.Add(SL_RR, 0xF2); ch2.Op4.Add(SL_RR, 0xFA);
+            ch3.Op1.Add(SL_RR, 0xE3); ch3.Op3.Add(SL_RR, 0xEB); ch3.Op2.Add(SL_RR, 0xF3); ch3.Op4.Add(SL_RR, 0xFB);
+            ch4.Op1.Add(SL_RR, 0xE4); ch4.Op3.Add(SL_RR, 0xEC); ch4.Op2.Add(SL_RR, 0xF4); ch4.Op4.Add(SL_RR, 0xFC);
+            ch5.Op1.Add(SL_RR, 0xE5); ch5.Op3.Add(SL_RR, 0xED); ch5.Op2.Add(SL_RR, 0xF5); ch5.Op4.Add(SL_RR, 0xFD);
+            ch6.Op1.Add(SL_RR, 0xE6); ch6.Op3.Add(SL_RR, 0xEE); ch6.Op2.Add(SL_RR, 0xF6); ch6.Op4.Add(SL_RR, 0xFE);
+            ch7.Op1.Add(SL_RR, 0xE7); ch7.Op3.Add(SL_RR, 0xEF); ch7.Op2.Add(SL_RR, 0xF7); ch7.Op4.Add(SL_RR, 0xFF);
 
         }
 
@@ -340,8 +335,8 @@ namespace EXTT
             FMsystem.Add(TIMER_LOAD_SAVE, 0x27); // second bit is ch3 mode
             FMsystem.Add(KEYON_OFF, 0x28);
 
-            var ch0 = new FMchannel2("FM0",4, chipcode); var ch1 = new FMchannel2("FM1",4, chipcode); var ch2 = new FMchannel2("FM2",4, chipcode);
-            FMChannel2List = new List<FMchannel2>(){ch0, ch1, ch2};
+            var ch0 = new FMchannel("FM0",4, chipcode); var ch1 = new FMchannel("FM1",4, chipcode); var ch2 = new FMchannel("FM2",4, chipcode);
+            FMChannel2List = new List<FMchannel>(){ch0, ch1, ch2};
             
             ch0.Add(FNUM_LSB, 0xA0); ch1.Add(FNUM_LSB, 0xA1); ch2.Add(FNUM_LSB, 0xA2);
             ch0.Add(FNUM_MSB, 0xA4); ch1.Add(FNUM_MSB, 0xA5); ch2.Add(FNUM_MSB, 0xA6); // a7?
@@ -383,7 +378,7 @@ namespace EXTT
                 // tb("data2.cs: bank2 = "+Convert.ToString(bank2,16) );
                 // FMsystem.Add() // todo ADPCM-A / RSS ... ADPCM-B
 
-                var ch3 = new FMchannel2("FM3",4, bank2); var ch4 = new FMchannel2("FM4",4, bank2); var ch5 = new FMchannel2("FM5",4, bank2);
+                var ch3 = new FMchannel("FM3",4, bank2); var ch4 = new FMchannel("FM4",4, bank2); var ch5 = new FMchannel("FM5",4, bank2);
                 
                 FMChannel2List.Add(ch3); FMChannel2List.Add(ch4); FMChannel2List.Add(ch5);
                 FMsystem.Add(OPNA_LFO_ENABLE, 0x22); 
@@ -441,11 +436,11 @@ namespace EXTT
         // 5b 5c 5a 5e/5f 0xd0 (ymf278 has a 4 byte command)
 
 
-            var ch0 = new FMchannel2("FM0",2, chipcode); var ch1 = new FMchannel2("FM1",2, chipcode); var ch2 = new FMchannel2("FM2",2, chipcode); var ch3 = new FMchannel2("FM3",2, chipcode);
-            var ch4 = new FMchannel2("FM4",2, chipcode); var ch5 = new FMchannel2("FM5",2, chipcode); var ch6 = new FMchannel2("FM6",2, chipcode); var ch7 = new FMchannel2("FM7",2, chipcode);
-            var ch8 = new FMchannel2("FM8",2, chipcode);
+            var ch0 = new FMchannel("FM0",2, chipcode); var ch1 = new FMchannel("FM1",2, chipcode); var ch2 = new FMchannel("FM2",2, chipcode); var ch3 = new FMchannel("FM3",2, chipcode);
+            var ch4 = new FMchannel("FM4",2, chipcode); var ch5 = new FMchannel("FM5",2, chipcode); var ch6 = new FMchannel("FM6",2, chipcode); var ch7 = new FMchannel("FM7",2, chipcode);
+            var ch8 = new FMchannel("FM8",2, chipcode);
 
-            FMChannel2List = new List<FMchannel2>(){ch0, ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8};
+            FMChannel2List = new List<FMchannel>(){ch0, ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8};
 
             FMsystem.Add(TESTREGISTER, 0x01); // third bit OPL compatibility mode (OPL2 only)
             FMsystem.Add(TIMER_A_MSB, 0x02);
@@ -542,9 +537,9 @@ namespace EXTT
                 FMsystem2.Add(OPL3_NEW, 0x05); // bank 2
                 
                 byte bank2 = Convert.ToByte(chipcode+1); // OPL3 bank 2: 0x5F
-                var ch9 = new FMchannel2("FM9",2, bank2); var ch10 = new FMchannel2("FM10",2, bank2); var ch11 = new FMchannel2("FM11",2, bank2); var ch12 = new FMchannel2("FM12",2, bank2);
-                var ch13 = new FMchannel2("FM13",2, bank2); var ch14 = new FMchannel2("FM14",2, bank2); var ch15 = new FMchannel2("FM15",2, bank2); var ch16 = new FMchannel2("FM16",2, bank2);
-                var ch17 = new FMchannel2("FM17",2, bank2);
+                var ch9 = new FMchannel("FM9",2, bank2); var ch10 = new FMchannel("FM10",2, bank2); var ch11 = new FMchannel("FM11",2, bank2); var ch12 = new FMchannel("FM12",2, bank2);
+                var ch13 = new FMchannel("FM13",2, bank2); var ch14 = new FMchannel("FM14",2, bank2); var ch15 = new FMchannel("FM15",2, bank2); var ch16 = new FMchannel("FM16",2, bank2);
+                var ch17 = new FMchannel("FM17",2, bank2);
 
                 FMChannel2List.Add(ch9); FMChannel2List.Add(ch10); FMChannel2List.Add(ch11);
                 FMChannel2List.Add(ch12); FMChannel2List.Add(ch13); FMChannel2List.Add(ch14);
