@@ -15,6 +15,7 @@ using System.IO.Compression; // gzip decompression
     Fixed a bug that may have caused loop points to be set incorrectly
     Fixed the catch-all SoloVGM properties "SSG" and "FM"
     Fixed OPL3 being muted
+    Fixed a bug that could cause incorrect alg/feedback in YM2608bank export
 
     0v05
     Note:
@@ -1635,7 +1636,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             }
 
             if (indxs.Count>0) {
-                tb($"ReturnDataIdxsToOverwrite {FM.name} @ 0x_{Convert.ToString(startpnt,16)}: Partial success! Found {indxs.Count}/5! = {ReturnList(indxs)}"); 
+                // tb($"ReturnDataIdxsToOverwrite {FM.name} @ 0x_{Convert.ToString(startpnt,16)}: Partial success! Found {indxs.Count}/5! = {ReturnList(indxs)}"); 
                 return true;  
             }
             return false; // unsuccesful, found startVGMdata

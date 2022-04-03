@@ -76,10 +76,11 @@ namespace EXTT.io_bank
             }}
 
             public byte alg { get{
-                    return (byte)(p[data2.FEEDBACK_ALG] & 0x0F); // ----XXXX
+                    return (byte)(p[data2.FEEDBACK_ALG] & 0b00000111); // --XXXYYY Feedback / Alg 
             } }
             public byte feedback { get{
-                    return (byte)(p[data2.FEEDBACK_ALG] >> 4); // XXXX----
+                    var tmp = (byte)(p[data2.FEEDBACK_ALG] << 2);  // --XXXYYY Feedback / Alg 
+                    return (byte)(tmp >> 5);
             } }
 
             public byte DT1(int op) {
