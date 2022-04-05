@@ -16,6 +16,7 @@ using System.IO.Compression; // gzip decompression
     Fixed the catch-all SoloVGM properties "SSG" and "FM"
     Fixed OPL3 being muted
     Fixed a bug that could cause incorrect alg/feedback in YM2608bank export
+    Changed output filename (from %~n.vgm.vgm to just %~n.vgm). SoloVGM output changed as well
 
     0v05
     Note:
@@ -96,7 +97,7 @@ namespace EXTT
         delegate string WriteDelegate2(byte msg, int tobase);
         private static readonly WriteDelegate2 cts = Convert.ToString;
 
-        // string constants for use as dictionary keys
+        // string constants for use as dictionary keys. These are for the patchkey system, representing specific nibbles or bits. Full bytes are in DATA2.CS
         const string mult1 = "mult1", mult2 = "mult2", mult3 = "mult3", mult4 = "mult4"; 
         const string dt1 = "dt1", dt2 = "dt2", dt3 = "dt3", dt4 = "dt4"; 
         const string dt21="dt21", dt22="dt22", dt23="dt23", dt24="dt24";
@@ -253,7 +254,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 Environment.Exit(0);
             }
             if (!File.Exists(args[args.Length-1]) ) {
-                 tb("Error: No such file exists "+args[args.Length-1]+" "); Console.ReadKey(); 
+                 tb($"Error: No such file exists {args[args.Length-1]}"); Console.ReadKey(); 
                  Environment.Exit(1);
             }
 
@@ -388,19 +389,13 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             int newEoF = BitConverter.ToInt32(data,0x04)+AppendCnt;
             // tb("old EOF="+BitConverter.ToInt32(data,0x04)+" new EoF="+newEoF+" appender cnt = "+AppendCnt); // debug
             byte[] newEoFA = BitConverter.GetBytes(newEoF);
-            data[0x04] = newEoFA[0];
-            data[0x05] = newEoFA[1];
-            data[0x06] = newEoFA[2];
-            data[0x07] = newEoFA[3];
+            data[0x04] = newEoFA[0]; data[0x05] = newEoFA[1]; data[0x06] = newEoFA[2]; data[0x07] = newEoFA[3];
 
             if (BitConverter.ToInt32(data,0x14) > 0) { // only update this if GD3 offset is present
                 int newGD3EoF = BitConverter.ToInt32(data,0x14)+AppendCnt;
                 // tb("old newGD3EoF="+BitConverter.ToInt32(data,0x14)+" new newGD3EoF="+newGD3EoF+" appender cnt = "+AppendCnt); // debug
                 byte[] newGD3EoFa = BitConverter.GetBytes(newGD3EoF);
-                data[0x14] = newGD3EoFa[0];
-                data[0x15] = newGD3EoFa[1];
-                data[0x16] = newGD3EoFa[2];
-                data[0x17] = newGD3EoFa[3];
+                data[0x14] = newGD3EoFa[0]; data[0x15] = newGD3EoFa[1]; data[0x16] = newGD3EoFa[2]; data[0x17] = newGD3EoFa[3];
             }
 
             if (BitConverter.ToInt32(data,0x1c) > 0) { //* handle loop, if present. As loop duration should remain the same, we shouldn't have to split 3-byte wait commands, we can do this last
@@ -418,8 +413,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 data = AppendData(in data, Appender); // ! ------- ------- ------- ------- ------- ------- if loop
                 // tb("new data cnt="+data.Count()+" end+?"+(endVGMdata+AppendCnt));
 
-
-
                 WaitFlags = new bool[data.Count()];
                 ExamineVGMData(true);
                 // timecodes=CreateTimeCode(timecodes, data, WaitFlags, startVGMdata, endVGMdata + AppendCnt); // count samples, int value for every byte shows current 
@@ -430,18 +423,12 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 // tb("old LP="+BitConverter.ToInt32(data,0x1c)+" new LP="+LoopPointIDX_2); // debug
                 // tb("loop point data @ 0X_"+Convert.ToString(LoopPointIDX_2)+": "+Convert.ToString(data[LoopPointIDX_2],16)+" "
                 //     +Convert.ToString(data[LoopPointIDX_2+1],16)+" "+Convert.ToString(data[LoopPointIDX_2+2],16)+" ");
-                data[0x1C] = newlooppoint[0];
-                data[0x1D] = newlooppoint[1];
-                data[0x1E] = newlooppoint[2];
-                data[0x1F] = newlooppoint[3];
+                data[0x1C] = newlooppoint[0]; data[0x1D] = newlooppoint[1]; data[0x1E] = newlooppoint[2]; data[0x1F] = newlooppoint[3];
 
                 // * loop samples # should not change
                 // byte[] newoopsamples = BitConverter.GetBytes(LoopSamples);
                 // tb("old loop duration="+BitConverter.ToInt32(data,0x20)+" "+SamplesToMinutes(BitConverter.ToInt32(data,0x20))+" new loop duration="+LoopSamples+" "+SamplesToMinutes(LoopSamples) ); // debug
-                // data[0x20] = newoopsamples[0];
-                // data[0x21] = newoopsamples[1];
-                // data[0x22] = newoopsamples[2];
-                // data[0x23] = newoopsamples[3];
+                // data[0x20] = newoopsamples[0]; data[0x21] = newoopsamples[1]; data[0x22] = newoopsamples[2]; data[0x23] = newoopsamples[3];
             } else {
                 data = AppendData(data, Appender); // ! ------- ------- ------- ------- ------- ------- if no loop
             }
@@ -522,7 +509,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 fs.Write(data, 0, data.Length);
             }                
             tb("EXTT v{0}.{1}{2} Complete",VERSIONMAJOR,VERSIONMINOR,VERSIONPATCH);
-            tb($"Old filesize={InitLengthDBG} new={data.Length}");
+            // tb($"Old filesize={InitLengthDBG} new={data.Length}");
             Environment.Exit(0);
             #endregion
         }
@@ -1298,12 +1285,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
         }
 
-        // static int LastDTMLidx = 0; // * auto forceop should choose the latest DTML cmd. Rather than figure this out with a loop we'll just track them as they come in
-        // // static string LastDTMLstr = ""; // * auto forceop should choose the latest DTML cmd. Rather than figure this out with a loop we'll just track them as they come in
-        // static int LastDTMLnmbr = 0; // * auto forceop should choose the latest DTML cmd. Rather than figure this out with a loop we'll just track them as they come in
-
-
-
         delegate byte ModifyByte(byte b);
         delegate void Modify3Bytes(ref byte b1, ref byte b2, ref byte b3);
 
@@ -1329,19 +1310,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             bool BeginDelay=false; // start lag
             int Lag = 0; // in samples, via parsewaits
 
-            // LastDTMLidx=0;
-            // LastDTMLnmbr=0;
 
-            // var DTML_idx_op = new List<int>();
-            // DTML_idx_op.
-
-            // tb($"start={startVGMdata} end={endVGMdata} length={ByteFlags.Length} {WaitFlags.Length} {data.Length}");
-            // foreach (var x in ByteFlags) if (x) tb(Convert.ToString(x));
-            // tb($"chip= {chiptype} {fMregisters.FMref.chip} {FMin.chip}");
-            
-
-            // var DTMLop_idx = new Dictionary<byte,int>(){{1,startVGMdata},{2,startVGMdata}};
-            // if (operators==4) { DTMLop_idx.Add(3,startVGMdata); DTMLop_idx.Add(4,startVGMdata);}
             var DTMLop_idx = new Dictionary<byte,int>(){};
 
             for (int i = startVGMdata; i < endVGMdata; i++) {
@@ -1383,19 +1352,9 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     //  tb($"{FMin.name}");
                 }
 
-                // ? 4-op question... which operator should we use?
-                // v040 behavior: only choose operator 4 (causes problems if op 4 data is missing)
-                // v042 behavior: use whichever is last (works well, even with mult sweeps)
-                // I'm concerned that using the last operator may be throwing off the phase in some cases 
-                // KEY OFF .... PATCH DATA ... KEY ON  
-                // then it should work perfectly
-                // ... addendum
-                // This should not matter, however with ymfm vgm player the amount of commands during the patch change *does*
-
-
                 if (BeginDelay) {
                     if (WaitFlags[i])
-                        Lag += ParseWaits(data,i,WaitFlags);
+                        Lag += ParseWaits(data,ref i,WaitFlags);
                     if (Lag >= LagThreshold) { // bug with tight loops. Will this cause problems with non-looped?
                         if (DTMLop_idx.Count > 0)
                             fMregisters.Triggerify(FMargs,i,DTMLop_idx); // hard edit happens here
@@ -1410,7 +1369,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     // tb($"finishing up {FMin.name}"); Console.ReadKey();
                     fMregisters.Triggerify(FMargs,endVGMdata-1,DTMLop_idx);
                 }
-
 
 
             //* Pt.B: Global changes (smashing feedback, decay, muting operators, etc)
@@ -1468,20 +1426,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 Append(startVGMdata, values_to_init.ToArray()); // append initial data to actual start
             }
 
-
-            // initialize our TL values (since we're removing them all)
-            // ! I'm concerned jamming so many writes at the start might cause problems with vgm files that are trimmed super tight
-
-            // foreach (var kv in dictionary_initcmds) { // old, use above
-            //     for (int i = 1; i < operators+1; i++) {
-            //         values_to_init.Add(FMin.chip); values_to_init.Add(FMin.REF_LABEL_REG[kv.Key+i]); values_to_init.Add(kv.Value);
-            //         // tb($"Triggerify {FMin.name} start! :appending @0x_{Convert.ToString(startVGMdata,16)} {cts(FMin.chip,16)} {cts(FMin.REF_LABEL_REG[kv.Key+i],16)} {cts(kv.Value,16)}");
-            //     }
-            // }
-            // Append(startVGMdata, values_to_init.ToArray()); // append initial data to actual start
-
-
-
             Modify3Bytes PokeyMe2 = delegate(ref byte slot, ref byte reg, ref byte val) {
                 slot=0xBB; reg=0x00; val=0x00;
             };
@@ -1501,7 +1445,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                 // Col_Reg_3bytes[FMin.REF_LABEL_REG["TL"+i]] = PokeyMe2;
                 // Col_Reg_3bytes[FMin.REF_LABEL_REG["DTML"+i]] = PokeyMe2; // for OPL, Triggerify should handle the first nibble.  XXXXYYYY AM enable / PM enable / EG type / KSR - MULT
 
-                Col_Reg_3bytes[FMin.REF_LABEL_REG["TL"+i]] = ReplaceWithSL_RR; // ymfm workaround attempt, instead of deleting commands, put some redundant value in there (old)
+                Col_Reg_3bytes[FMin.REF_LABEL_REG["TL"+i]] = ReplaceWithSL_RR; // ymfm workaround attempt, instead of deleting commands, put some redundant value in there
                 Col_Reg_3bytes[FMin.REF_LABEL_REG["DTML"+i]] = ReplaceWithSL_RR; // 
 
             }
@@ -1593,8 +1537,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
         }
 
-        // static void AppendArray(int idx)
-
         // looking backwards through data, find 5 TL or DTML values and return their indexes
         // input: a list of registers to look for
         static bool ReturnDataIdxsToOverwrite(int startpnt, in FMchannel FM, in List<byte> regs, out List<int> indxs, int IndexToFind, int tolerance) {
@@ -1615,7 +1557,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     }
                     
                 }
-                t+=ParseWaits(data,i,WaitFlags); // parsewaits 1 doesn't increment indxes so we can use it backwards like this?
+                t+=ParseWaitsLegacy(data, i, WaitFlags); // parsewaitslegacy doesn't increment indxes so we can use it backwards
 
                 // tb($"{ByteFlags[i]} && {Convert.ToString(data[i],16)} == {Convert.ToString(FM.chip,16)} ??");
                 // tb($"{cts(data[i],16)} {cts(data[i+1],16)} {cts(data[i+2],16)}");
@@ -1650,7 +1592,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     idx = startpoint;
                     return false;
                 }
-                t+=ParseWaits2(data, ref i, WaitFlags);
+                t+=ParseWaits(data, ref i, WaitFlags);
                 if (ByteFlags[i] && IsKeyOn(FM, data[i], data[i+1], data[i+2])) {
                     idx = i;
                     return true;
@@ -1851,7 +1793,23 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             return false;
         }
 
-        static int ParseWaits(in byte[] data, int idx, in bool[] WaitFlags){ // just return delay of current byte, in samples
+        static int ParseWaits(in byte[] data, ref int idx, in bool[] WaitFlags){ // * will iterate index by 2 if 3-byte wait is found
+            if (WaitFlags[idx]){ // 'wait' commands should be flagged ahead of time by this bool array
+                switch (data[idx]){
+                    case 0x61: idx+=2; return BitConverter.ToUInt16(data, idx-1);   // three-byte wait // should be data+1 but incremented index first so
+                    case 0x62: return 735; // wait 735 samples (60th of a second)
+                    case 0x63: return 882; // wait 882 samples (50th of a second)
+                    case byte n when (n >= 0x70 && n <= 0x7F): // 1-byte waits
+                        return Second4BitToInt(data[idx])+1; // 1-16
+                    case byte n when (n >= 0x80 && n <= 0x8F):  // OPN2 sample write & wait
+                        return Second4BitToInt(data[idx]); // 0-15
+                }
+            }
+            return 0;
+        }
+
+        // * vv this parsewaits method is not accurate enough for loop points due to how it handles 3-byte waits. However, it's still useful for searching backwards        
+        static int ParseWaitsLegacy(in byte[] data, int idx, in bool[] WaitFlags){ // just return delay of current byte, in samples
             if (WaitFlags[idx]){ // 'wait' commands should be flagged ahead of time by this bool array
                 switch (data[idx]){
                     case 0x61: return BitConverter.ToUInt16(data, idx+1);   // three-byte wait  bugfix 2022-02-22. needs to be UINT not int...
@@ -1866,20 +1824,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             return 0;
         }
 
-        static int ParseWaits2(in byte[] data, ref int idx, in bool[] WaitFlags){ //* will iterate index by 2 if 3-byte wait is found. More accurate - Must-use for loops
-            if (WaitFlags[idx]){ // 'wait' commands should be flagged ahead of time by this bool array
-                switch (data[idx]){
-                    case 0x61: idx+=2; return BitConverter.ToUInt16(data, idx-1);   // three-byte wait // should be data+1 but incremented index first so
-                    case 0x62: return 735; // wait 735 samples (60th of a second)
-                    case 0x63: return 882; // wait 882 samples (50th of a second)
-                    case byte n when (n >= 0x70 && n <= 0x7F): // 1-byte waits
-                        return Second4BitToInt(data[idx])+1; // 1-16
-                    case byte n when (n >= 0x80 && n <= 0x8F):  // OPN2 sample write & wait
-                        return Second4BitToInt(data[idx]); // 0-15
-                }
-            }
-            return 0;
-        }
 
         static int ReturnDesiredDT(Dictionary<string,int> values, int DesiredDTalg) {   // todo DT is a 4-bit value, first bit is a sign. This func works, but is ridiculous
             var LUT = new Dictionary<int, int>(); //DT lut
@@ -1962,11 +1906,11 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     lp_idx=i;
                     break;
                 }
-                samples+=ParseWaits2(data, ref i, WaitFlags);
+                samples+=ParseWaits(data, ref i, WaitFlags);
             }
             // int tmp=0;
             for (int i = looppoint_header; i < endVGMdata; i++) { // From loop point index to endVGMdata (0x66, tag section, or straight up EoF)
-                samples_from_loop+=ParseWaits2(data, ref i, WaitFlags);
+                samples_from_loop+=ParseWaits(data, ref i, WaitFlags);
             }
             // samples+=samples_from_loop; // debug?
             // LoopSamples = samples_from_loop;
@@ -1980,7 +1924,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                     lp_idx=i;
                     break;
                 }
-                samples+=ParseWaits2(data, ref i, WaitFlags); // will iterate index by 2 if 3-byte wait is found
+                samples+=ParseWaits(data, ref i, WaitFlags); // will iterate index by 2 if 3-byte wait is found
             }
             tb("FindLoopPoint:"+lp_idx);
             return lp_idx;
@@ -1991,21 +1935,12 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             for (int i = 0; i < startVGMdata; i++) {timecodes[i]=0;}                // write 0 to header section
             for (int i = endVGMdata; i < timecodes.Length; i++) {timecodes[i]=0;}   // write 0 to EOF (tags and such live here)
 
-            // int lp = BitConverter.ToInt32(data, 0x1C) - 28;
-            // bool lpfound=false;
-
-
-            // int tmp = ParseWaits(data,0xCB6D,WaitFlags);
-            // tb("0xCB6D = "+WaitFlags[0xCB62] + " 0x"+Convert.ToString(data[0xCB6D],16) + " adds smples="+tmp);
-            // tb("0xCB6D = "+WaitFlags[52077] + " 0x"+Convert.ToString(data[52077],16) + " adds smples="+tmp);
-            // // tb("0xCB98 = "+WaitFlags[0xCB98]);
-            // Console.ReadKey();
-
             int samples=0;
             // int last=0; // * debug
             for (int i = startVGMdata; i < endVGMdata; i++){
-                samples+=ParseWaits(data, i, WaitFlags); //* this has a slight issue, if wait is >1 byte this will be wrong
-                timecodes[i]=samples;
+                samples+=ParseWaits(data, ref i, WaitFlags);
+                if (i < endVGMdata)
+                    timecodes[i]=samples;
             }
             return timecodes;
         }
@@ -2024,16 +1959,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             }
             return datalist.ToArray<byte>();    // Maybe always have data in list form?
         }
-        // static byte[] AppendData(byte[] data, Lookup<int, byte[]> append) { // assumes 3 bytes in lookup
-
-        //     List<byte> datalist = new List<byte>(data); //? can this be improved? having to convert from array to list to array
-        //     foreach (var cmd in append.OrderByDescending(x => x.Key)) {
-        //         // datalist.Insert(cmd.Key, cmd.Value);
-        //         datalist.InsertRange(cmd.Key, cmd.);
-
-        //     }
-        //     return datalist.ToArray<byte>();    // Maybe always have data in list form?
-        // }
 
         static int AppenderCount(Dictionary<int, byte[]> appender) {
             int c=0;
@@ -2282,7 +2207,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
 
 
             // var testlist = new List<int>();
-
             var testDict = new Dictionary<byte,int>() {
                 {1, 300},
                 {2, 400},
@@ -2298,54 +2222,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
             tb($"min = {min} ={testDict[min]} max= {max} ={testDict[max]}");
 
             testDict = new Dictionary<byte,int>();
-
-
-            // // * testing loops with delegates
-            // var arr = new byte[]{0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e};
-
-            // ModifyByte KillSecondNibble = delegate(byte b) {
-            //     var tmp=(byte)(b >> 4);
-            //     return (byte)(tmp << 4);
-            // };
-            // ModifyByte NoOp = delegate(byte b) {
-            //     return b;
-            // };
-
-            // // var tpl = new Tuple<byte, byte, ModifyByte>();
-
-            // // var dict = new Dictionary<byte, ModifyByte>();
-            // arr.ToList().ForEach(b => tb("0x_"+Convert.ToString(b,16) ));
-
-            // var instructions = new Dictionary<byte,ModifyByte>(){
-            //     {0x11, NoOp},
-            //     {0x12, KillSecondNibble},
-            //     {0x13, KillSecondNibble},
-            //     {0x14, KillSecondNibble},
-            //     {0x15, KillSecondNibble},
-            //     {0x16, KillSecondNibble},
-            //     {0x17, KillSecondNibble},
-            //     {0x18, KillSecondNibble},
-            //     {0x1a, NoOp},
-            //     {0x1b, NoOp},
-            //     {0x1c, NoOp},
-            //     {0x1d, NoOp},
-            //     {0x1e, NoOp},
-            //     {0x1f, NoOp}
-            // };
-
-            // // foreach (byte b in arr) {
-            // //     if (instructions.ContainsKey(b)) {
-            // //         instructions[b](b);      // can't assign to foreach variables
-            // //     }
-            // // }
-
-            // for (int i = 0; i < arr.Length; i++) {
-            //     if (instructions.ContainsKey(arr[i])) {
-            //         arr[i] = instructions[arr[i]](arr[i]);
-            //     }
-            // }
-
-            // arr.ToList().ForEach(b => tb("0x_"+Convert.ToString(b,16) ));
 
 
             tb("debugstart: End of Code");Console.ReadKey();
@@ -2431,57 +2307,6 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
     
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//         static void PrintHex(byte[] b) { // hex view?
-//             int length; // file length
-//             length = new System.IO.FileInfo(filename).Length;
-
-//             Console.WriteLine("...............................................");
-//             Console.WriteLine("00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F");
-//             int i;
-//             int c=0; // count to 16
-//             // int r=0; // row
-//             string s = "";
-//             // Console.WriteLine(Convert.ToString(b[0],16));
-//             for (i = 0; i < length; i++) {
-
-//                 // s+=r; // left row
-//                 // r+=1;    
-//                 c+=1;  
-//                 s+=Convert.ToString(b[i],16);
-//                 s+=" ";
-
-//                 if (c == 16) {
-//                     Console.WriteLine(s);
-//                     c = 0; s = "";
-//                 }
-//             }
-//             Console.WriteLine(s); // leftovers
-//             return;
-//         }
-
-//     }
-// }
-
-
-
-
-
-
-
 
 
 

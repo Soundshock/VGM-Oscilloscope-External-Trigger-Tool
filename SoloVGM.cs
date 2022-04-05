@@ -216,7 +216,7 @@ namespace EXTT.SoloVGM
 
             tb("SoloVGM: Muted {0} Commands",c);
 
-            string outfile=filename+"_Solovgm"+suff+".vgm";
+            string outfile=filename[0..^4]+"_Solo"+suff+".vgm";
             tb("SoloVGM: Writing "+outfile);
 
             if (File.Exists(outfile)) {
