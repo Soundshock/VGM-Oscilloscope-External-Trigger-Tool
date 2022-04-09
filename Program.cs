@@ -1225,7 +1225,7 @@ Example: extt dt 0 fm0 dt 2 fm3 dt 11 FILE.vgz <- additionally, set channel fm3 
                                                             FMref.chip, FMref.REF_LABEL_REG["DTML"+outop], outDTML}); 
                     }
                     PokeyDataAtIDX(DTMLop_idx[LastDTMLop]);
-                    Console.ReadKey(); // debug.
+                    // Console.ReadKey(); // debug.
 
                 }
 
